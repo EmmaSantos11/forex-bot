@@ -16,7 +16,6 @@ models/
 
 # Ongoing Live Development
 run_live.py
-live_trader.py
 
 # Sensitive — MT5 credentials for managed accounts
 managed_accounts.json
