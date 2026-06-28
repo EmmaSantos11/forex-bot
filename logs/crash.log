@@ -1,0 +1,392 @@
+
+============================================================
+CRASH AT 2026-04-21 09:20:18
+============================================================
+Traceback (most recent call last):
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\main.py", line 1793, in main
+    f"AI Confidence: {confidence:.2%} | Spread: {spread:.1f}pts"
+                                                 ^^^^^^
+NameError: name 'spread' is not defined
+
+
+[2026-04-21 09:20:19] 💥 Bot crashed (exit code 1, attempt #1). Restarting in 30s...
+
+============================================================
+CRASH AT 2026-04-21 09:52:57
+============================================================
+Traceback (most recent call last):
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\main.py", line 1793, in main
+    })
+    
+NameError: name 'spread' is not defined
+
+
+[2026-04-21 09:52:59] 💥 Bot crashed (exit code 1, attempt #2). Restarting in 30s...
+
+[2026-04-24 09:12:34] 💥 Bot crashed (exit code 1, attempt #1). Restarting in 30s...
+
+[2026-04-24 09:13:34] 💥 Bot crashed (exit code 1, attempt #2). Restarting in 30s...
+
+============================================================
+CRASH AT 2026-04-27 00:54:02
+============================================================
+Traceback (most recent call last):
+  File "C:\Users\ohama\AppData\Local\Python\pythoncore-3.14-64\Lib\multiprocessing\pool.py", line 215, in __init__
+    self._repopulate_pool()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\ohama\AppData\Local\Python\pythoncore-3.14-64\Lib\multiprocessing\pool.py", line 306, in _repopulate_pool
+    return self._repopulate_pool_static(self._ctx, self.Process,
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+                                        self._processes,
+                                        ^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+                                        self._maxtasksperchild,
+                                        ^^^^^^^^^^^^^^^^^^^^^^^
+                                        self._wrap_exception)
+                                        ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ohama\AppData\Local\Python\pythoncore-3.14-64\Lib\multiprocessing\pool.py", line 329, in _repopulate_pool_static
+    w.start()
+    ~~~~~~~^^
+  File "C:\Users\ohama\AppData\Local\Python\pythoncore-3.14-64\Lib\multiprocessing\dummy\__init__.py", line 51, in start
+    threading.Thread.start(self)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\ohama\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1005, in start
+    _start_joinable_thread(self._bootstrap, handle=self._os_thread_handle,
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                           daemon=self.daemon)
+                           ^^^^^^^^^^^^^^^^^^^
+RuntimeError: can't start new thread
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\main.py", line 2449, in main
+    signal, confidence, ict_score = get_signal(pair, _pair_xgb, _pair_rf)
+                                    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\main.py", line 734, in get_signal
+    result_df  = generate_ensemble_signals(tfs["5min"], model, rf_model)
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\ml_model.py", line 323, in generate_ensemble_signals
+    rf_sigs,  rf_confs  = _predict_one(rf_model,   X_valid)
+                          ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\ml_model.py", line 281, in _predict_one
+    probs = model.predict_proba(X_valid)
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\sklearn\ensemble\_forest.py", line 956, in predict_proba
+    Parallel(n_jobs=n_jobs, verbose=self.verbose, require="sharedmem")(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        delayed(_accumulate_prediction)(e.predict_proba, X, all_proba, lock)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        for e in self.estimators_
+        ^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\sklearn\utils\parallel.py", line 91, in __call__
+    return super().__call__(iterable_with_config_and_warning_filters)
+           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\joblib\parallel.py", line 2070, in __call__
+    next(output)
+    ~~~~^^^^^^^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\joblib\parallel.py", line 1675, in _get_outputs
+    self._start(iterator, pre_dispatch)
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\joblib\parallel.py", line 1658, in _start
+    if self.dispatch_one_batch(iterator):
+       ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\joblib\parallel.py", line 1540, in dispatch_one_batch
+    self._dispatch(tasks)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\joblib\parallel.py", line 1437, in _dispatch
+    job = self._backend.submit(batch, callback=batch_tracker)
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\joblib\_parallel_backends.py", line 339, in submit
+    return self._get_pool().apply_async(
+           ~~~~~~~~~~~~~~^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\joblib\_parallel_backends.py", line 507, in _get_pool
+    self._pool = ThreadPool(self._n_jobs)
+                 ~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\ohama\AppData\Local\Python\pythoncore-3.14-64\Lib\multiprocessing\pool.py", line 930, in __init__
+    Pool.__init__(self, processes, initializer, initargs)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ohama\AppData\Local\Python\pythoncore-3.14-64\Lib\multiprocessing\pool.py", line 219, in __init__
+    p.terminate()
+    ^^^^^^^^^^^
+AttributeError: 'DummyProcess' object has no attribute 'terminate'
+
+
+[2026-04-27 00:54:08] 💥 Bot crashed (exit code 1, attempt #1). Restarting in 30s...
+
+[2026-04-28 03:32:47] 💥 Bot crashed (exit code 1, attempt #1). Restarting in 30s...
+
+[2026-05-01 09:20:23] 💥 Bot crashed (exit code 1, attempt #1). Restarting in 30s...
+
+============================================================
+CRASH AT 2026-05-06 08:08:18
+============================================================
+Traceback (most recent call last):
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\pandas\core\indexes\base.py", line 3641, in get_loc
+    return self._engine.get_loc(casted_key)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+  File "pandas/_libs/index.pyx", line 168, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas/_libs/index.pyx", line 197, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas/_libs/hashtable_class_helper.pxi", line 7668, in pandas._libs.hashtable.PyObjectHashTable.get_item
+  File "pandas/_libs/hashtable_class_helper.pxi", line 7676, in pandas._libs.hashtable.PyObjectHashTable.get_item
+KeyError: 'SMA_7'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\main.py", line 2532, in main
+    signal, confidence, ict_score = get_signal(pair, _pair_xgb, _pair_rf)
+                                    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\main.py", line 782, in get_signal
+    _corr_raw = add_indicators(add_features(_corr_raw))
+                               ~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\strategy.py", line 70, in add_features
+    df["trend_strength"] = df["SMA_7"] - df["SMA_50"]
+                           ~~^^^^^^^^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\pandas\core\frame.py", line 4378, in __getitem__
+    indexer = self.columns.get_loc(key)
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\pandas\core\indexes\base.py", line 3648, in get_loc
+    raise KeyError(key) from err
+KeyError: 'SMA_7'
+
+
+[2026-05-06 08:08:20] 💥 Bot crashed (exit code 1, attempt #1). Restarting in 30s...
+
+============================================================
+CRASH AT 2026-05-10 20:12:55
+============================================================
+Traceback (most recent call last):
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\main.py", line 2549, in main
+    run_auto_retrain()
+    ~~~~~~~~~~~~~~~~^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\main.py", line 1827, in run_auto_retrain
+    manual = manual[FEATURE_COLS + ["Target"]].dropna()
+             ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\pandas\core\frame.py", line 4384, in __getitem__
+    indexer = self.columns._get_indexer_strict(key, "columns")[1]
+              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\pandas\core\indexes\base.py", line 6302, in _get_indexer_strict
+    self._raise_if_missing(keyarr, indexer, axis_name)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\pandas\core\indexes\base.py", line 6355, in _raise_if_missing
+    raise KeyError(f"{not_found} not in index")
+KeyError: "['ict_structure_bull', 'ict_bos', 'ict_liq_sweep', 'ict_ob', 'ict_fvg', 'ict_choch', 'ict_displacement', 'ict_cisd', 'ict_kill_zone', 'ict_ote', 'ict_golden_zone', 'ict_score_norm', 'ict_smt'] not in index"
+
+
+[2026-05-10 20:12:59] 💥 Bot crashed (exit code 1, attempt #1). Restarting in 30s...
+
+============================================================
+CRASH AT 2026-05-10 20:15:41
+============================================================
+Traceback (most recent call last):
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\main.py", line 2549, in main
+    run_auto_retrain()
+    ~~~~~~~~~~~~~~~~^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\main.py", line 1827, in run_auto_retrain
+    manual = manual[FEATURE_COLS + ["Target"]].dropna()
+             ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\pandas\core\frame.py", line 4384, in __getitem__
+    indexer = self.columns._get_indexer_strict(key, "columns")[1]
+              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\pandas\core\indexes\base.py", line 6302, in _get_indexer_strict
+    self._raise_if_missing(keyarr, indexer, axis_name)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\pandas\core\indexes\base.py", line 6355, in _raise_if_missing
+    raise KeyError(f"{not_found} not in index")
+KeyError: "['ict_structure_bull', 'ict_bos', 'ict_liq_sweep', 'ict_ob', 'ict_fvg', 'ict_choch', 'ict_displacement', 'ict_cisd', 'ict_kill_zone', 'ict_ote', 'ict_golden_zone', 'ict_score_norm', 'ict_smt'] not in index"
+
+
+[2026-05-10 20:15:45] 💥 Bot crashed (exit code 1, attempt #2). Restarting in 30s...
+
+============================================================
+CRASH AT 2026-05-10 20:18:25
+============================================================
+Traceback (most recent call last):
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\main.py", line 2549, in main
+    current_day = today
+    ^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\main.py", line 1827, in run_auto_retrain
+    if "Target" in manual.columns and not manual.empty:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\pandas\core\frame.py", line 4384, in __getitem__
+    indexer = self.columns._get_indexer_strict(key, "columns")[1]
+              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\pandas\core\indexes\base.py", line 6302, in _get_indexer_strict
+    self._raise_if_missing(keyarr, indexer, axis_name)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\pandas\core\indexes\base.py", line 6355, in _raise_if_missing
+    raise KeyError(f"{not_found} not in index")
+KeyError: "['ict_structure_bull', 'ict_bos', 'ict_liq_sweep', 'ict_ob', 'ict_fvg', 'ict_choch', 'ict_displacement', 'ict_cisd', 'ict_kill_zone', 'ict_ote', 'ict_golden_zone', 'ict_score_norm', 'ict_smt'] not in index"
+
+
+[2026-05-10 20:18:29] 💥 Bot crashed (exit code 1, attempt #3). Restarting in 30s...
+
+============================================================
+CRASH AT 2026-05-10 23:00:09
+============================================================
+Traceback (most recent call last):
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\main.py", line 2792, in main
+    signal, confidence, ict_score = get_signal(pair, _pair_xgb, _pair_rf)
+                                    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\main.py", line 978, in get_signal
+    result_df  = generate_ensemble_signals(tfs["5min"], model, rf_model)
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\ml_model.py", line 343, in generate_ensemble_signals
+    xgb_sigs, xgb_confs = _predict_one(xgb_model, X_valid)
+                          ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\ml_model.py", line 302, in _predict_one
+    probs = model.predict_proba(X_valid)
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\xgboost\sklearn.py", line 1921, in predict_proba
+    class_probs = super().predict(
+        X=X,
+    ...<2 lines>...
+        iteration_range=iteration_range,
+    )
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\xgboost\core.py", line 751, in inner_f
+    return func(**kwargs)
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\xgboost\sklearn.py", line 1446, in predict
+    predts = self.get_booster().inplace_predict(
+        data=X,
+    ...<4 lines>...
+        validate_features=validate_features,
+    )
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\xgboost\core.py", line 751, in inner_f
+    return func(**kwargs)
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\xgboost\core.py", line 2854, in inplace_predict
+    self._validate_features(fns)
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\xgboost\core.py", line 3429, in _validate_features
+    raise ValueError(msg.format(self.feature_names, feature_names))
+ValueError: feature_names mismatch: ['trend_strength', 'momentum', 'volatility', 'RSI', 'MACD_hist', 'BB_width', 'BB_position'] ['trend_strength', 'momentum', 'volatility', 'RSI', 'MACD_hist', 'BB_width', 'BB_position', 'ict_structure_bull', 'ict_bos', 'ict_liq_sweep', 'ict_ob', 'ict_fvg', 'ict_choch', 'ict_displacement', 'ict_cisd', 'ict_kill_zone', 'ict_ote', 'ict_golden_zone', 'ict_score_norm', 'ict_smt']
+training data did not have the following fields: ict_golden_zone, ict_smt, ict_ote, ict_score_norm, ict_bos, ict_ob, ict_cisd, ict_displacement, ict_fvg, ict_liq_sweep, ict_choch, ict_structure_bull, ict_kill_zone
+
+
+[2026-05-10 23:00:13] 💥 Bot crashed (exit code 1, attempt #4). Restarting in 30s...
+
+============================================================
+CRASH AT 2026-05-10 23:36:06
+============================================================
+Traceback (most recent call last):
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\main.py", line 2792, in main
+    signal, confidence, ict_score = get_signal(pair, _pair_xgb, _pair_rf)
+                                    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\main.py", line 978, in get_signal
+    result_df  = generate_ensemble_signals(tfs["5min"], model, rf_model)
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\ml_model.py", line 343, in generate_ensemble_signals
+    xgb_sigs, xgb_confs = _predict_one(xgb_model, X_valid)
+                          ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\ml_model.py", line 302, in _predict_one
+    probs = model.predict_proba(X_valid)
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\xgboost\sklearn.py", line 1921, in predict_proba
+    class_probs = super().predict(
+        X=X,
+    ...<2 lines>...
+        iteration_range=iteration_range,
+    )
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\xgboost\core.py", line 751, in inner_f
+    return func(**kwargs)
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\xgboost\sklearn.py", line 1446, in predict
+    predts = self.get_booster().inplace_predict(
+        data=X,
+    ...<4 lines>...
+        validate_features=validate_features,
+    )
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\xgboost\core.py", line 751, in inner_f
+    return func(**kwargs)
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\xgboost\core.py", line 2854, in inplace_predict
+    self._validate_features(fns)
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\xgboost\core.py", line 3429, in _validate_features
+    raise ValueError(msg.format(self.feature_names, feature_names))
+ValueError: feature_names mismatch: ['trend_strength', 'momentum', 'volatility', 'RSI', 'MACD_hist', 'BB_width', 'BB_position'] ['trend_strength', 'momentum', 'volatility', 'RSI', 'MACD_hist', 'BB_width', 'BB_position', 'ict_structure_bull', 'ict_bos', 'ict_liq_sweep', 'ict_ob', 'ict_fvg', 'ict_choch', 'ict_displacement', 'ict_cisd', 'ict_kill_zone', 'ict_ote', 'ict_golden_zone', 'ict_score_norm', 'ict_smt']
+training data did not have the following fields: ict_displacement, ict_bos, ict_choch, ict_structure_bull, ict_ob, ict_kill_zone, ict_golden_zone, ict_fvg, ict_ote, ict_score_norm, ict_cisd, ict_smt, ict_liq_sweep
+
+
+[2026-05-10 23:36:08] 💥 Bot crashed (exit code 1, attempt #1). Restarting in 30s...
+
+============================================================
+CRASH AT 2026-05-10 23:43:38
+============================================================
+Traceback (most recent call last):
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\main.py", line 2792, in main
+    signal, confidence, ict_score = get_signal(pair, _pair_xgb, _pair_rf)
+                                    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\main.py", line 978, in get_signal
+    result_df  = generate_ensemble_signals(tfs["5min"], model, rf_model)
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\ml_model.py", line 343, in generate_ensemble_signals
+    xgb_sigs, xgb_confs = _predict_one(xgb_model, X_valid)
+                          ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\ml_model.py", line 302, in _predict_one
+    probs = model.predict_proba(X_valid)
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\xgboost\sklearn.py", line 1921, in predict_proba
+    class_probs = super().predict(
+        X=X,
+    ...<2 lines>...
+        iteration_range=iteration_range,
+    )
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\xgboost\core.py", line 751, in inner_f
+    return func(**kwargs)
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\xgboost\sklearn.py", line 1446, in predict
+    predts = self.get_booster().inplace_predict(
+        data=X,
+    ...<4 lines>...
+        validate_features=validate_features,
+    )
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\xgboost\core.py", line 751, in inner_f
+    return func(**kwargs)
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\xgboost\core.py", line 2854, in inplace_predict
+    self._validate_features(fns)
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\venv\Lib\site-packages\xgboost\core.py", line 3429, in _validate_features
+    raise ValueError(msg.format(self.feature_names, feature_names))
+ValueError: feature_names mismatch: ['trend_strength', 'momentum', 'volatility', 'RSI', 'MACD_hist', 'BB_width', 'BB_position'] ['trend_strength', 'momentum', 'volatility', 'RSI', 'MACD_hist', 'BB_width', 'BB_position', 'ict_structure_bull', 'ict_bos', 'ict_liq_sweep', 'ict_ob', 'ict_fvg', 'ict_choch', 'ict_displacement', 'ict_cisd', 'ict_kill_zone', 'ict_ote', 'ict_golden_zone', 'ict_score_norm', 'ict_smt']
+training data did not have the following fields: ict_structure_bull, ict_ob, ict_smt, ict_score_norm, ict_ote, ict_liq_sweep, ict_choch, ict_kill_zone, ict_golden_zone, ict_fvg, ict_displacement, ict_cisd, ict_bos
+
+
+[2026-05-10 23:43:41] 💥 Bot crashed (exit code 1, attempt #2). Restarting in 30s...
+
+[2026-05-19 04:27:36] 💥 Bot crashed (exit code 1, attempt #1). Restarting in 30s...
+
+[2026-05-21 10:23:01] 💥 Bot crashed (exit code 1, attempt #1). Restarting in 30s...
+
+[2026-05-24 22:51:05] 💥 Bot crashed (exit code 3221226505, attempt #1). Restarting in 30s...
+
+[2026-05-26 09:17:01] 💥 Bot crashed (exit code 1, attempt #1). Restarting in 30s...
+
+[2026-05-26 09:17:48] 💥 Bot crashed (exit code 1, attempt #2). Restarting in 30s...
+
+[2026-05-26 09:18:38] 💥 Bot crashed (exit code 1, attempt #3). Restarting in 30s...
+
+[2026-05-26 09:21:51] 💥 Bot crashed (exit code 1, attempt #1). Restarting in 30s...
+
+[2026-05-26 09:22:44] 💥 Bot crashed (exit code 1, attempt #2). Restarting in 30s...
+
+[2026-05-26 09:24:34] 💥 Bot crashed (exit code 1, attempt #1). Restarting in 30s...
+
+[2026-05-26 09:25:18] 💥 Bot crashed (exit code 1, attempt #2). Restarting in 30s...
+
+[2026-05-27 13:53:53] 💥 Bot crashed (exit code 1073807364, attempt #1). Restarting in 30s...
+
+============================================================
+CRASH AT 2026-05-28 07:12:44
+============================================================
+Traceback (most recent call last):
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\main.py", line 2972, in main
+    and _market_bias_posted != today):
+        ^^^^^^^^^^^^^^^^^^^
+UnboundLocalError: cannot access local variable '_market_bias_posted' where it is not associated with a value
+
+
+[2026-05-28 07:12:47] 💥 Bot crashed (exit code 1, attempt #1). Restarting in 30s...
+
+============================================================
+CRASH AT 2026-05-28 07:14:06
+============================================================
+Traceback (most recent call last):
+  File "C:\Users\ohama\OneDrive\Desktop\forex_ai_bot\main.py", line 2972, in main
+    and _market_bias_posted != today):
+        ^^^^^^^^^^^^^^^^^^^
+UnboundLocalError: cannot access local variable '_market_bias_posted' where it is not associated with a value
+
+
+[2026-05-28 07:14:10] 💥 Bot crashed (exit code 1, attempt #2). Restarting in 30s...
+
+[2026-06-05 08:09:01] 💥 Bot crashed (exit code 1, attempt #1). Restarting in 30s...

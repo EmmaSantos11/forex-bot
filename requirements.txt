@@ -1,0 +1,16 @@
+MetaTrader5
+pandas
+numpy
+scikit-learn
+scipy
+joblib
+xgboost
+yfinance
+requests
+matplotlib
+python-dotenv
+streamlit
+plotly
+pyngrok
+streamlit-autorefresh
+huggingface_hub
