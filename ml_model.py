@@ -209,7 +209,7 @@ def prepare_ml_data(df, sl_atr_mult=1.5, rrr=3):
 # TRAINING
 # ══════════════════════════════════════════════════════════════════════════════
 
-def train_model(X, y) -> tuple:
+def train_model(X, y, n_estimators: int = 400) -> tuple:
     """
     Trains XGBoost. Returns (model, xgb_recall_wins).
     recall_wins = fraction of actual winning bars the model correctly called as wins.
@@ -232,7 +232,7 @@ def train_model(X, y) -> tuple:
     spw   = (n_neg / n_pos * 1.5) if n_pos > 0 else 1.0
 
     xgb = XGBClassifier(
-        n_estimators=400,        # more trees → more stable predictions
+        n_estimators=n_estimators, # configurable trees (default 400)
         max_depth=4,             # shallower → less overfitting on noisy financial data
         learning_rate=0.04,      # slower learning → generalises better
         subsample=0.75,          # row sampling per tree
@@ -263,7 +263,7 @@ def train_model(X, y) -> tuple:
     return xgb, recall_wins
 
 
-def train_rf_model(X, y) -> tuple:
+def train_rf_model(X, y, n_estimators: int = 300) -> tuple:
     """
     Trains Random Forest. Returns (model, rf_recall_wins).
     """
@@ -278,7 +278,7 @@ def train_rf_model(X, y) -> tuple:
         return None, 0.0
 
     rf = RandomForestClassifier(
-        n_estimators=300,        # increased from 200 — more stable ensemble vote
+        n_estimators=n_estimators, # configurable trees (default 300)
         max_depth=5,             # reduced from 6 — less overfitting
         min_samples_leaf=4,      # slightly relaxed to catch more win patterns
         max_features="sqrt",     # standard — prevents feature dominance

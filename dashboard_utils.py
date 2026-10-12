@@ -532,14 +532,25 @@ def fetch_mt5_account_stats(login: int, password: str, server: str) -> dict | No
 
 # ── MT5 Helpers ───────────────────────────────────────────────────────────────
 
+_MT5_EXE_PATHS = [
+    r"C:\Program Files\MetaTrader 5\terminal64.exe",
+    r"C:\Program Files (x86)\MetaTrader 5\terminal64.exe",
+]
+
 def _ensure_mt5() -> bool:
     if mt5.account_info() is not None:
         return True
-    if not mt5.initialize():
-        return False
-    if LOGIN:
-        mt5.login(LOGIN, password=PASSWORD, server=SERVER)
-    return mt5.account_info() is not None
+    if mt5.initialize():
+        if LOGIN:
+            mt5.login(LOGIN, password=PASSWORD, server=SERVER)
+        if mt5.account_info() is not None:
+            return True
+    for p in _MT5_EXE_PATHS:
+        if os.path.isfile(p):
+            if mt5.initialize(p, login=LOGIN, password=PASSWORD, server=SERVER):
+                if mt5.account_info() is not None:
+                    return True
+    return False
 
 
 def _get_account_raw():

@@ -1617,16 +1617,43 @@ def has_correlated_open(symbol: str) -> bool:
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PHASE A — TRAILING STOPS + PARTIAL PROFIT TAKING
-# At 1R profit: close 50% of the position, move SL to breakeven.
+# ══════════════════════════════════════════════════════════════════════════════
+# TWIN-ORDER ENGINE + TRAILING STOPS + RISK MANAGEMENT
+# Leg 1 (Scalp):  50% lots, 1.5R target — quick win banked early
+# Leg 2 (Runner): 50% lots, 3.5R–5.0R target — when Scalp hits TP, SL moves to Breakeven
 # ══════════════════════════════════════════════════════════════════════════════
 
+MAGIC_SCALP  = 123456
+MAGIC_RUNNER = 123457
+
 # Tracks the last trailing SL step applied per ticket.
-# Steps: 0=none, 1=−0.5R, 2=BE, 3=+0.5R, 4=+1R, 5=+1.5R
+# Steps: 0=none, 1=−0.5R, 2=BE, 3=+0.5R, 4=+1R, 5=+1.5R, 6=+2R
 _trailing_sl_step: dict = {}
 
 # Tickets where a reversal-signal partial has already been taken this session.
-# Prevents double-partialing the same position.
 _reversal_partialed: set = set()
+
+_TWIN_ORDERS_FILE = os.path.join("logs", "twin_orders.json")
+
+def _save_twin_orders():
+    try:
+        os.makedirs("logs", exist_ok=True)
+        with open(_TWIN_ORDERS_FILE, "w") as f:
+            json.dump({str(k): v for k, v in _twin_orders.items()}, f)
+    except Exception:
+        pass
+
+def _load_twin_orders() -> dict:
+    if not os.path.exists(_TWIN_ORDERS_FILE):
+        return {}
+    try:
+        with open(_TWIN_ORDERS_FILE) as f:
+            raw = json.load(f)
+            return {int(k): v for k, v in raw.items()}
+    except Exception:
+        return {}
+
+_twin_orders: dict = _load_twin_orders()
 
 
 def _modify_sl(ticket: int, symbol: str, new_sl: float) -> bool:
@@ -1649,20 +1676,25 @@ def _modify_sl(ticket: int, symbol: str, new_sl: float) -> bool:
 
 def manage_open_positions():
     """
-    Gradual trailing SL — advances every R-multiple the trade moves in profit.
-    Full position runs to TP; no partial closes.
+    Twin-Order & Gradual Trailing SL Manager:
+      1. Twin-Order: If a Runner ticket's twin Scalp has closed/hit TP or trade reaches +1.0R,
+         move Runner SL to Breakeven (+2 pts buffer) immediately -> 100% Risk-Free.
+      2. Trailing SL: Once beyond +2.0R, ratchets up (+0.5R, +1.0R, +1.5R, +2.0R) to lock in profits.
 
     Step  Trigger    New SL
       1   +1R profit  entry − 0.5R  (cuts risk in half)
       2   +2R profit  entry          (breakeven)
       3   +3R profit  entry + 0.5R  (locks half initial risk)
       4   +4R profit  entry + 1.0R  (locks full initial risk)
-      5   +5R profit  entry + 1.5R  (let it run — SL beyond full risk)
+      5   +5R profit  entry + 1.5R  (locks 1.5R profit)
+      6   +6R profit  entry + 2.0R  (locks 2.0R profit)
     """
-    _STEP_LABELS = {1: "-0.5R", 2: "BE", 3: "+0.5R", 4: "+1R", 5: "+1.5R"}
-    _STEP_OFFSETS = {1: -0.5, 2: 0.0, 3: 0.5, 4: 1.0, 5: 1.5}
+    _STEP_LABELS  = {1: "-0.5R", 2: "BE", 3: "+0.5R", 4: "+1R", 5: "+1.5R", 6: "+2.0R"}
+    _STEP_OFFSETS = {1: -0.5, 2: 0.0, 3: 0.5, 4: 1.0, 5: 1.5, 6: 2.0}
 
     positions = mt5.positions_get() or []
+    live_tickets = {p.ticket for p in positions}
+
     for pos in positions:
         ticket = pos.ticket
         symbol = pos.symbol
@@ -1675,12 +1707,37 @@ def manage_open_positions():
 
         is_buy = pos.type == mt5.ORDER_TYPE_BUY
         entry  = pos.price_open
+        info   = mt5.symbol_info(symbol)
+        pt     = info.point if info else 0.00001
 
         profit_distance = (pos.price_current - entry) if is_buy else (entry - pos.price_current)
         profit_r = profit_distance / sl_distance
 
-        # Which step should we be at?
-        if profit_r >= 5.0:
+        # ── 1. Twin-Order Breakeven check for Runner ───────────────────────────
+        if ticket in _twin_orders:
+            twin = _twin_orders[ticket]
+            scalp_tid = twin.get("scalp_ticket")
+            scalp_closed = (scalp_tid is not None and scalp_tid not in live_tickets)
+
+            if (scalp_closed or profit_r >= 1.0) and not twin.get("be_moved", False):
+                be_sl = (entry + 2 * pt) if is_buy else (entry - 2 * pt)
+                valid_move = (be_sl > pos.sl) if is_buy else (pos.sl == 0 or be_sl < pos.sl)
+                if valid_move and _modify_sl(ticket, symbol, be_sl):
+                    twin["be_moved"] = True
+                    _save_twin_orders()
+                    _trailing_sl_step[ticket] = 2
+                    print(f"🎯 {symbol} RUNNER #{ticket}: SL moved to Breakeven (Scalp secured, Risk-Free)")
+                    send_telegram_message(
+                        f"🛡️ <b>Twin-Order Secured!</b> — {symbol}\n"
+                        f"Scalp target banked. Runner #{ticket} SL moved to <b>Breakeven</b>!\n"
+                        f"This trade is now <b>100% Risk-Free</b> — riding for macro target. 🚀"
+                    )
+                    continue
+
+        # ── 2. Gradual Trailing Stop Ratchet ──────────────────────────────────
+        if profit_r >= 6.0:
+            target_step = 6
+        elif profit_r >= 5.0:
             target_step = 5
         elif profit_r >= 4.0:
             target_step = 4
@@ -1880,8 +1937,10 @@ def _check_closed_positions():
                     _set_mood("lost", f"${profit:.2f} on {_strip_suffix(symbol)}", "Onward — next setup awaits.", pair=_strip_suffix(symbol), pnl=profit)
 
             sign = "+" if profit >= 0 else ""
+            role = cached.get("trade_role", "")
+            role_label = f" [{role}]" if role else ""
             msg = (
-                f"{emoji} <b>Trade Closed — {reason}</b>\n\n"
+                f"{emoji} <b>Trade Closed — {reason}{role_label}</b>\n\n"
                 f"Pair:      <b>{symbol}</b>\n"
                 f"Direction: {'🟢 BUY' if direction == 'BUY' else '🔴 SELL'}\n"
                 f"Lots:      {lots}\n"
@@ -1890,6 +1949,32 @@ def _check_closed_positions():
                 f"P&L:       <b>{sign}{profit:.2f}</b>\n"
                 f"Reason:    {reason}"
             )
+
+            # ── Twin-Order Breakeven trigger: if Scalp leg closed in profit ───
+            if profit > 0:
+                for r_ticket, t_info in list(_twin_orders.items()):
+                    if t_info.get("scalp_ticket") == ticket and not t_info.get("be_moved"):
+                        r_positions = mt5.positions_get(ticket=r_ticket)
+                        if r_positions:
+                            r_pos = r_positions[0]
+                            is_b = r_pos.type == mt5.ORDER_TYPE_BUY
+                            r_pt = mt5.symbol_info(r_pos.symbol).point if mt5.symbol_info(r_pos.symbol) else 0.00001
+                            be_sl = (r_pos.price_open + 2 * r_pt) if is_b else (r_pos.price_open - 2 * r_pt)
+                            valid_m = (be_sl > r_pos.sl) if is_b else (r_pos.sl == 0 or be_sl < r_pos.sl)
+                            if valid_m and _modify_sl(r_ticket, r_pos.symbol, be_sl):
+                                t_info["be_moved"] = True
+                                _trailing_sl_step[r_ticket] = 2
+                                _save_twin_orders()
+                                send_telegram_message(
+                                    f"🎯 <b>Scalp Target Banked!</b> — {r_pos.symbol}\n\n"
+                                    f"Profit: <b>+${profit:.2f}</b> secured!\n"
+                                    f"Runner #{r_ticket} SL moved to <b>Breakeven</b> (Risk-Free Trade) 🛡️\n"
+                                    f"Now riding for macro target at zero risk!"
+                                )
+
+            if ticket in _twin_orders:
+                _twin_orders.pop(ticket, None)
+                _save_twin_orders()
 
             # ── Outcome chart ─────────────────────────────────────────────
             _oc = ("TP" if "Take Profit" in reason else
@@ -3525,107 +3610,222 @@ def main():
                 df_5m  = add_indicators(df_5m)
                 atr    = df_5m["ATR"].iloc[-1]
                 sl_pts = int((atr * 1.5) / info.point)   # 1.5×ATR matches ML training SL
+                # ── Twin-Order Sizing & Target Calibration ────────────────────
+                # Leg 1 (Scalp):  1.5R target — quick win banked early
+                # Leg 2 (Runner): 3.5R target (or 5.0R elite) — rides macro move risk-free
+                tp_scalp_pts = int(sl_pts * 1.5)
                 if confidence >= 0.92 and ict_score >= 10:
-                    tp_pts = sl_pts * 10  # 1:10 — elite setup, very high confidence
+                    tp_runner_pts = int(sl_pts * 5.0)  # 1:5 elite runner
                 else:
-                    tp_pts = sl_pts * 5   # 1:5 default — profitable at ≥17% win rate
-                lots   = pm.calculate_position_size(pair, sl_pts)
+                    tp_runner_pts = int(sl_pts * 3.5)  # 1:3.5 default runner
 
+                lots = pm.calculate_position_size(pair, sl_pts)
                 if lots <= 0:
                     continue
 
-                result = place_trade(pair, signal=signal, lot=lots, sl=sl_pts, tp=tp_pts)
+                vol_step = info.volume_step if info.volume_step else 0.01
+                vol_min  = info.volume_min  if info.volume_min  else 0.01
 
-                if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                # Check if we can split lots into twin orders
+                can_twin = lots >= vol_min * 2
+                if not can_twin:
+                    # If 1 micro lot (0.01), check if account risk safely allows 0.02
+                    tick_val = info.trade_tick_value or 1.0
+                    risk_2lots = 2 * vol_min * sl_pts * tick_val
+                    max_safe_risk = pm.balance * (pm.risk_per_trade * 1.5)
+                    if risk_2lots <= max_safe_risk and (2 * vol_min) <= pm.max_lot_size:
+                        lots = round(2 * vol_min, 2)
+                        can_twin = True
+
+                if can_twin:
+                    lot_scalp  = round(int((lots * 0.5) / vol_step) * vol_step, 2)
+                    lot_runner = round(lots - lot_scalp, 2)
+                    if lot_scalp < vol_min or lot_runner < vol_min:
+                        lot_scalp  = lots
+                        lot_runner = 0.0
+                        can_twin   = False
+                else:
+                    lot_scalp  = lots
+                    lot_runner = 0.0
+
+                # ── Execute Orders ────────────────────────────────────────────
+                res_scalp  = None
+                res_runner = None
+                direction  = "BUY" if signal == 1 else "SELL"
+
+                if can_twin and lot_runner > 0:
+                    res_scalp = place_trade(
+                        pair, signal=signal, lot=lot_scalp,
+                        sl=sl_pts, tp=tp_scalp_pts,
+                        comment="AI SCALP", magic=MAGIC_SCALP
+                    )
+                    res_runner = place_trade(
+                        pair, signal=signal, lot=lot_runner,
+                        sl=sl_pts, tp=tp_runner_pts,
+                        comment="AI RUNNER", magic=MAGIC_RUNNER
+                    )
+                    primary_result = res_scalp if (res_scalp and res_scalp.retcode == mt5.TRADE_RETCODE_DONE) else res_runner
+                else:
+                    res_scalp = place_trade(
+                        pair, signal=signal, lot=lot_scalp,
+                        sl=sl_pts, tp=tp_scalp_pts,
+                        comment="AI BOT", magic=MAGIC_SCALP
+                    )
+                    primary_result = res_scalp
+
+                trade_success = bool(primary_result and primary_result.retcode == mt5.TRADE_RETCODE_DONE)
+
+                if trade_success:
                     _scan_state[pair] = {"status": "TRADED", "signal": signal, "confidence": round(confidence, 3)}
-                    direction = "BUY" if signal == 1 else "SELL"
                     _set_mood("high_conf",
                               f"High conviction trade placed — {_strip_suffix(pair)} {direction}!",
-                              f"{confidence:.0%} confidence | ICT {ict_score}/20 | Trailing SL active 🔥",
+                              f"{confidence:.0%} confidence | ICT {ict_score}/20 | Twin-Order active 🔥",
                               pair=_strip_suffix(pair), confidence=confidence)
                     _pair_trade_count[pair] = _pair_trade_count.get(pair, 0) + 1
                     _global_trade_count += 1
                     _last_trade_time = time.time()
-                    _last_successful_trade_ts = time.time()  # cross-day drought tracker
+                    _last_successful_trade_ts = time.time()
                     _kz_bucket = _current_kz_bucket()
                     _session_trade_counts[_kz_bucket] = _session_trade_counts.get(_kz_bucket, 0) + 1
-                    # Per-session pair counter — prevents a second trade on the same pair
-                    # within the same kill-zone window (e.g. two London trades on EURUSD)
                     if _kz_bucket != "other":
                         _pair_session_trade_counts.setdefault(pair, {})[_kz_bucket] = \
                             _pair_session_trade_counts.get(pair, {}).get(_kz_bucket, 0) + 1
-                    _pending_signals.pop(pair, None)  # clear confirmation state
-                    _news_skip_active.discard(pair)   # reset so future blocks log once again
-                    _save_bot_state()  # persist counters immediately so a crash can't bypass daily limits
+                    _pending_signals.pop(pair, None)
+                    _news_skip_active.discard(pair)
+                    _save_bot_state()
 
-                    pm.open_trade({
-                        "ticket":     result.order,
-                        "symbol":     pair,
-                        "type":       direction,
-                        "lots":       lots,
-                        "confidence": confidence,
-                    })
-
-                    # ── Compute actual prices for log and position cache ──────────────
+                    # Common price calculations
                     entry_price = tick.ask if signal == 1 else tick.bid
                     pt          = info.point
                     sl_price    = entry_price - sl_pts * pt if signal == 1 else entry_price + sl_pts * pt
-                    tp_price    = entry_price + tp_pts * pt if signal == 1 else entry_price - tp_pts * pt
-                    rrr_log     = tp_pts // sl_pts if sl_pts > 0 else 3
+                    tp_scalp_pr = entry_price + tp_scalp_pts * pt if signal == 1 else entry_price - tp_scalp_pts * pt
+                    tp_run_pr   = entry_price + tp_runner_pts * pt if signal == 1 else entry_price - tp_runner_pts * pt
 
-                    log_trade({
-                        "timestamp":     datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "symbol":        pair,
-                        "type":          direction,
-                        "lots":          lots,
-                        "ai_confidence": round(confidence, 4),
-                        "ict_score":     ict_score,
-                        "entry":         round(entry_price, 5),
-                        "sl":            round(sl_price, 5),
-                        "tp":            round(tp_price, 5),
-                        "rrr":           rrr_log,
-                        "ticket":        result.order,
-                    })
+                    # Register Leg 1 (Scalp)
+                    if res_scalp and res_scalp.retcode == mt5.TRADE_RETCODE_DONE:
+                        pm.open_trade({
+                            "ticket":     res_scalp.order,
+                            "symbol":     pair,
+                            "type":       direction,
+                            "lots":       lot_scalp,
+                            "confidence": confidence,
+                        })
+                        _position_cache[res_scalp.order] = {
+                            "symbol":     pair,
+                            "direction":  direction,
+                            "entry":      entry_price,
+                            "sl":         sl_price,
+                            "tp":         tp_scalp_pr,
+                            "lots":       lot_scalp,
+                            "ict_score":  ict_score,
+                            "confidence": confidence,
+                            "trade_role": "SCALP" if can_twin else "STANDALONE",
+                            "twin_ticket": res_runner.order if (res_runner and res_runner.retcode == mt5.TRADE_RETCODE_DONE) else None,
+                        }
+                        log_trade({
+                            "timestamp":     datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "symbol":        pair,
+                            "type":          f"{direction} (SCALP)" if can_twin else direction,
+                            "lots":          lot_scalp,
+                            "ai_confidence": round(confidence, 4),
+                            "ict_score":     ict_score,
+                            "entry":         round(entry_price, 5),
+                            "sl":            round(sl_price, 5),
+                            "tp":            round(tp_scalp_pr, 5),
+                            "rrr":           1.5,
+                            "ticket":        res_scalp.order,
+                        })
+
+                    # Register Leg 2 (Runner)
+                    if res_runner and res_runner.retcode == mt5.TRADE_RETCODE_DONE:
+                        pm.open_trade({
+                            "ticket":     res_runner.order,
+                            "symbol":     pair,
+                            "type":       direction,
+                            "lots":       lot_runner,
+                            "confidence": confidence,
+                        })
+                        _position_cache[res_runner.order] = {
+                            "symbol":     pair,
+                            "direction":  direction,
+                            "entry":      entry_price,
+                            "sl":         sl_price,
+                            "tp":         tp_run_pr,
+                            "lots":       lot_runner,
+                            "ict_score":  ict_score,
+                            "confidence": confidence,
+                            "trade_role": "RUNNER",
+                            "twin_ticket": res_scalp.order if (res_scalp and res_scalp.retcode == mt5.TRADE_RETCODE_DONE) else None,
+                        }
+                        if res_scalp and res_scalp.retcode == mt5.TRADE_RETCODE_DONE:
+                            _twin_orders[res_runner.order] = {
+                                "scalp_ticket": res_scalp.order,
+                                "symbol":       pair,
+                                "be_moved":     False,
+                                "entry":        entry_price,
+                                "sl_pts":       sl_pts,
+                            }
+                            _save_twin_orders()
+
+                        log_trade({
+                            "timestamp":     datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "symbol":        pair,
+                            "type":          f"{direction} (RUNNER)",
+                            "lots":          lot_runner,
+                            "ai_confidence": round(confidence, 4),
+                            "ict_score":     ict_score,
+                            "entry":         round(entry_price, 5),
+                            "sl":            round(sl_price, 5),
+                            "tp":            round(tp_run_pr, 5),
+                            "rrr":           round(tp_runner_pts / sl_pts, 1),
+                            "ticket":        res_runner.order,
+                        })
+
+                    _save_position_cache()
 
                     log_execution_note(
-                        result.order, pair, signal, lots,
-                        f"AI Confidence: {confidence:.2%} | Spread: {spread_pct*100:.4f}%"
+                        primary_result.order, pair, signal, lots,
+                        f"AI Confidence: {confidence:.2%} | Twin-Order: {'YES' if can_twin else 'NO'} | Spread: {spread_pct*100:.4f}%"
                     )
 
                     print(
                         f"✅ [{datetime.now().strftime('%H:%M:%S')}] "
-                        f"{pair} {direction} {lots} lots | conf={confidence:.2f}"
+                        f"{pair} {direction} {lots} lots | conf={confidence:.2f} | Twin={can_twin}"
                     )
-                    _position_cache[result.order] = {
-                        "symbol":     pair,
-                        "direction":  direction,
-                        "entry":      entry_price,
-                        "sl":         sl_price,
-                        "tp":         tp_price,
-                        "lots":       lots,
-                        "ict_score":  ict_score,
-                        "confidence": confidence,
-                    }
-                    _save_position_cache()
 
                     # ── Broadcast trade entry to all registered users ──────
-                    rrr         = tp_pts // sl_pts
-                    conf_bar    = "🟢🟢🟢" if confidence >= 0.80 else ("🟡🟡" if confidence >= 0.60 else "🟠")
-                    sess_line   = _sessions_text()
+                    conf_bar        = "🟢🟢🟢" if confidence >= 0.80 else ("🟡🟡" if confidence >= 0.60 else "🟠")
+                    sess_line       = _sessions_text()
                     direction_emoji = "🟢 BUY" if signal == 1 else "🔴 SELL"
-                    trade_msg = (
-                        f"📣 <b>Trade Entered</b>\n\n"
-                        f"Pair:       <b>{pair}</b>\n"
-                        f"Direction:  {direction_emoji}\n"
-                        f"Lots:       {lots}\n"
-                        f"Entry:      {entry_price:.5f}\n"
-                        f"Stop Loss:  {sl_price:.5f}\n"
-                        f"Take Profit:{tp_price:.5f}\n"
-                        f"RRR:        1:{rrr}\n"
-                        f"Confidence: {conf_bar} {confidence:.0%}\n"
-                        f"Session:    {sess_line}\n"
-                        f"Ticket:     #{result.order}"
-                    )
+
+                    if can_twin and res_scalp and res_runner and res_scalp.retcode == mt5.TRADE_RETCODE_DONE and res_runner.retcode == mt5.TRADE_RETCODE_DONE:
+                        trade_msg = (
+                            f"📣 <b>Twin-Order Executed</b>\n\n"
+                            f"Pair:       <b>{pair}</b>\n"
+                            f"Direction:  {direction_emoji}\n"
+                            f"Entry:      {entry_price:.5f}\n"
+                            f"Stop Loss:  {sl_price:.5f} (−{sl_pts} pts)\n\n"
+                            f"🎯 <b>Leg 1 (Scalp)</b>: {lot_scalp} lots | TP: 1:1.5 ({tp_scalp_pr:.5f})\n"
+                            f"🚀 <b>Leg 2 (Runner)</b>: {lot_runner} lots | TP: 1:{round(tp_runner_pts/sl_pts,1)} ({tp_run_pr:.5f}) [Trailing SL]\n\n"
+                            f"Confidence: {conf_bar} {confidence:.0%}\n"
+                            f"Session:    {sess_line}\n"
+                            f"Tickets:    #{res_scalp.order} (Scalp) / #{res_runner.order} (Runner)"
+                        )
+                    else:
+                        trade_msg = (
+                            f"📣 <b>Trade Entered</b>\n\n"
+                            f"Pair:       <b>{pair}</b>\n"
+                            f"Direction:  {direction_emoji}\n"
+                            f"Lots:       {lot_scalp}\n"
+                            f"Entry:      {entry_price:.5f}\n"
+                            f"Stop Loss:  {sl_price:.5f}\n"
+                            f"Take Profit:{tp_scalp_pr:.5f}\n"
+                            f"RRR:        1:1.5\n"
+                            f"Confidence: {conf_bar} {confidence:.0%}\n"
+                            f"Session:    {sess_line}\n"
+                            f"Ticket:     #{primary_result.order}"
+                        )
+
                     all_users = _load_registered_users() | {os.getenv("TELEGRAM_CHAT_ID", "")}
                     for uid in all_users:
                         if uid:
@@ -3639,9 +3839,10 @@ def main():
                             _df_chart = add_indicators(_df_chart)
                             _entry_chart = generate_trade_chart(
                                 symbol=pair, direction=direction,
-                                entry_price=entry_price, sl_price=sl_price, tp_price=tp_price,
+                                entry_price=entry_price, sl_price=sl_price,
+                                tp_price=tp_run_pr if can_twin else tp_scalp_pr,
                                 confidence=confidence, ict_score=ict_score,
-                                df_5m=_df_chart, rr_ratio=rrr,
+                                df_5m=_df_chart, rr_ratio=round(tp_runner_pts/sl_pts, 1) if can_twin else 1.5,
                             )
                             if _entry_chart:
                                 send_photo_to_channel(_entry_chart)

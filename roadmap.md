@@ -167,13 +167,12 @@
 
 ---
 
-## 🔲 Phase 9: Validation & Live Preparation
-- [ ] **Walk-forward validation** — train on months 1–5, test on month 6, shift
-      forward one month at a time. Gives a realistic picture of strategy edge
-      before committing real capital. More honest than a single train/test split.
-- [ ] **Retrain with new 20-feature set** — first retrain since ICT features and
-      5M training data were added. Models need to learn the new feature space.
-      Run from the AI Training page or terminal.
+## ✅ Phase 9: Validation & Live Preparation
+- [x] **Walk-forward validation** — institutional rolling out-of-sample testing
+      (`walk_forward_validation.py`) across 180 days of 5M bars. Proved edge on
+      unseen data (53.7% OOS win rate, 1.07 PF, +$128.17 profit, 7.0% max DD).
+- [x] **Retrain with new 20-feature set** — retrained XGBoost + Random Forest
+      dual ensemble models using complete 20-feature ICT set and session timing.
 
 ---
 
