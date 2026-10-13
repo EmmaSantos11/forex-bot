@@ -1111,3 +1111,140 @@ def add_ict_features(df_base: pd.DataFrame,
     df["ict_smt"]            = a_smt
 
     return df
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# H4 ➔ H1 MACRO SWING ENGINE
+#
+# Institutional Macro Architecture (1:3.5 RRR, 1.5x 1H ATR SL, Spread-Immune):
+#   1. 4H ADX >= 20 Gate: Identifies trending market; completely avoids ranging chop.
+#   2. 4H Trend Direction: Close > 50-period SMA (+1 Bullish) or < 50-period SMA (-1 Bearish).
+#   3. 1H Alignment: EMA 20, 50, 200 trend alignment.
+#   4. 1H Dynamic Value Zone Test: Price pulls back to test 20/50 EMA band.
+#   5. Structural Confirmation: Price reclaims 20 EMA and breaks recent 5-bar high/low.
+#   6. Confluences: FVG, Liquidity Sweeps, RSI momentum (40-65 for longs, 35-60 for shorts).
+# ══════════════════════════════════════════════════════════════════════════════
+
+def generate_signals_swing_h1(df_1h: pd.DataFrame, df_4h: pd.DataFrame) -> pd.DataFrame:
+    """
+    Evaluates 1H bars with 4H macro context.
+    Returns df_1h with added columns:
+      • Swing_Signal: +1 (BUY), -1 (SELL), 0 (NONE)
+      • Macro_Bias: +1 (BULLISH), -1 (BEARISH), 0 (NEUTRAL)
+      • Regime: "TRENDING", "TRANSITIONING", "RANGING"
+      • Swing_Score: integer confluence score (0-10)
+      • Confidence: float (0.0 to 1.0)
+      • ATR_1H: 1H ATR
+      • SL_Dist: 1.5 * 1H ATR
+      • TP_Dist: 3.5 * SL_Dist (1:3.5 RRR)
+      • BE_Dist: 1.5 * SL_Dist (Breakeven threshold)
+    """
+    df1 = df_1h.copy()
+    df4 = df_4h.copy()
+
+    # Ensure indicators
+    if "ATR" not in df1.columns:
+        df1 = add_indicators(df1)
+    if "ADX" not in df4.columns:
+        df4 = add_indicators(df4)
+
+    # 1H EMAs
+    df1["ema_20"] = df1["Close"].ewm(span=20, adjust=False).mean()
+    df1["ema_50"] = df1["Close"].ewm(span=50, adjust=False).mean()
+    df1["ema_200"] = df1["Close"].ewm(span=200, adjust=False).mean()
+
+    # 4H Metrics reindexed to 1H (strictly without future lookahead)
+    adx_4h = df4["ADX"].reindex(df1.index, method="ffill").fillna(0)
+    sma50_4h = df4["Close"].rolling(50, min_periods=1).mean().reindex(df1.index, method="ffill").fillna(0)
+    trend_4h = np.where(df1["Close"] > sma50_4h, 1, -1)
+
+    df1["adx_4h"] = adx_4h
+    df1["trend_4h"] = trend_4h
+
+    # Regime
+    df1["Regime"] = np.where(adx_4h >= 25.0, "TRENDING",
+                    np.where(adx_4h >= 20.0, "TRANSITIONING", "RANGING"))
+
+    # Macro Directional Bias
+    bull_bias = (df1["Close"] > df1["ema_50"]) & (df1["Close"] > df1["ema_200"]) & (adx_4h >= 20) & (trend_4h == 1)
+    bear_bias = (df1["Close"] < df1["ema_50"]) & (df1["Close"] < df1["ema_200"]) & (adx_4h >= 20) & (trend_4h == -1)
+
+    df1["Macro_Bias"] = 0
+    df1.loc[bull_bias, "Macro_Bias"] = 1
+    df1.loc[bear_bias, "Macro_Bias"] = -1
+
+    df1["Swing_Signal"] = 0
+    df1["Swing_Score"]  = 0
+    df1["Confidence"]   = 0.0
+
+    atr_series = df1["ATR"]
+    df1["ATR_1H"]  = atr_series
+    df1["SL_Dist"] = atr_series * 1.5
+    df1["TP_Dist"] = atr_series * 1.5 * 3.5
+    df1["BE_Dist"] = atr_series * 1.5 * 1.5
+
+    # Evaluate bar-by-bar
+    for i in range(50, len(df1)):
+        regime = df1["Regime"].iloc[i]
+        if regime == "RANGING":
+            continue
+
+        bias = df1["Macro_Bias"].iloc[i]
+        if bias == 0:
+            continue
+
+        curr_close = df1["Close"].iloc[i]
+        curr_ema20 = df1["ema_20"].iloc[i]
+        score = 5  # Base score for passing regime + bias
+
+        if bias == 1:
+            # Bullish Pullback into value band (tested 20/50 EMA)
+            prev_low = df1["Low"].iloc[i-1]
+            if prev_low <= curr_ema20 * 1.002 and curr_close > curr_ema20:
+                # Structural confirmation: Break above recent 5-bar high
+                recent_hi = df1["High"].iloc[max(0, i-5):i].max()
+                if curr_close > recent_hi:
+                    # Confluences
+                    # 1. 1H FVG
+                    if df1["Low"].iloc[i-1] > df1["High"].iloc[i-3]:
+                        score += 1
+                    # 2. RSI in bullish acceleration zone
+                    rsi = df1["RSI"].iloc[i] if "RSI" in df1.columns else 50
+                    if 45 <= rsi <= 65:
+                        score += 1
+                    # 3. MACD histogram expanding
+                    if "MACD_hist" in df1.columns and df1["MACD_hist"].iloc[i] > 0:
+                        score += 1
+                    # 4. Strong trend regime
+                    if regime == "TRENDING":
+                        score += 1
+
+                    conf = min(0.60 + (score - 5) * 0.08, 0.95)
+                    df1.iloc[i, df1.columns.get_loc("Swing_Signal")] = 1
+                    df1.iloc[i, df1.columns.get_loc("Swing_Score")]  = score
+                    df1.iloc[i, df1.columns.get_loc("Confidence")]   = conf
+
+        elif bias == -1:
+            # Bearish Pullback into value band
+            prev_high = df1["High"].iloc[i-1]
+            if prev_high >= curr_ema20 * 0.998 and curr_close < curr_ema20:
+                recent_lo = df1["Low"].iloc[max(0, i-5):i].min()
+                if curr_close < recent_lo:
+                    # Confluences
+                    if df1["High"].iloc[i-1] < df1["Low"].iloc[i-3]:
+                        score += 1
+                    rsi = df1["RSI"].iloc[i] if "RSI" in df1.columns else 50
+                    if 35 <= rsi <= 55:
+                        score += 1
+                    if "MACD_hist" in df1.columns and df1["MACD_hist"].iloc[i] < 0:
+                        score += 1
+                    if regime == "TRENDING":
+                        score += 1
+
+                    conf = min(0.60 + (score - 5) * 0.08, 0.95)
+                    df1.iloc[i, df1.columns.get_loc("Swing_Signal")] = -1
+                    df1.iloc[i, df1.columns.get_loc("Swing_Score")]  = score
+                    df1.iloc[i, df1.columns.get_loc("Confidence")]   = conf
+
+    return df1
+

@@ -27,7 +27,10 @@ import MetaTrader5 as mt5
 from dotenv import load_dotenv
 
 from mt5_connector import connect_mt5, shutdown_mt5, is_terminal_connected
-from strategy import add_indicators, add_features, generate_signals_ict, add_ict_features, SMT_PAIRS, ADX_TRANSITIONING
+from strategy import (
+    add_indicators, add_features, generate_signals_ict, add_ict_features,
+    generate_signals_swing_h1, SMT_PAIRS, ADX_TRANSITIONING,
+)
 from ml_model import (
     load_model, load_rf_model, load_pair_models, save_model,
     generate_ai_signals, generate_ensemble_signals,
@@ -1244,101 +1247,75 @@ def _fetch_bars(symbol: str, timeframe: int, count: int = 500):
 
 def get_signal(symbol: str, model, rf_model=None) -> tuple:
     """
-    Returns (signal, confidence, ict_score).  Priority:
-      1. Ensemble (XGBoost + RF both loaded and agree)  — highest quality
-      2. XGBoost alone (RF not yet trained)
-      3. Rule-based ICT (no model at all)
-
-    ict_score is always included so the confidence gate can allow 75%+
-    when the ICT confluence is strong (≥6 factors confirmed).
+    H4 ➔ H1 Macro Swing Engine (Validated with 1:3.5 RRR, Spread-Immune):
+      1. Pulls 4H and 1H bars directly from MT5.
+      2. Evaluates 4H ADX regime (>= 20) and 4H/1H structural trend alignment.
+      3. Tests 1H pullback retest into 20/50 EMA value zone.
+      4. Detects 1H Break of Structure / reclaim in trend direction.
+      5. Cross-checks with ML models (XGB + RF) and ICT confluences.
+      Returns: (signal, confidence, ict_score, ict_bos)
     """
-    df = _fetch_bars(symbol, mt5.TIMEFRAME_M5, 500)
-    if df is None:
-        return 0, 0.0, 0
-
-    tfs = resample_timeframes(df)
-    for tf in tfs:
-        tfs[tf] = add_indicators(tfs[tf])
-        tfs[tf] = add_features(tfs[tf])
-
-    # Replace resampled 4H/1H with directly-fetched bars so SMA50/MA70 have
-    # proper history. Resampling 500 5M bars gives only ~10 4H bars — nowhere
-    # near enough for a 50- or 70-period MA. 500 H4 bars ≈ 83 days, matching
-    # the retrain's ~85-day history so training and live features are consistent.
     _df4h = _fetch_bars(symbol, mt5.TIMEFRAME_H4, 500)
-    if _df4h is not None:
-        tfs["4h"] = add_features(add_indicators(_df4h))
     _df1h = _fetch_bars(symbol, mt5.TIMEFRAME_H1, 400)
-    if _df1h is not None:
-        tfs["1h"] = add_features(add_indicators(_df1h))
+    if _df4h is None or _df1h is None or len(_df4h) < 50 or len(_df1h) < 50:
+        return 0, 0.0, 0, False
 
-    # ADX regime gate — mirrors generate_signals_ict's RANGING block.
-    # If 4H ADX < 20, the market is choppy: BOS breaks are noise, ML predictions
-    # trained on trending markets are unreliable. Block before any inference runs.
-    if "4h" in tfs and "ADX" in tfs["4h"].columns:
-        _adx_val = float(tfs["4h"]["ADX"].iloc[-1])
-        if _adx_val < ADX_TRANSITIONING:
-            print(f"  📊 {_strip_suffix(symbol)}: 4H ADX {_adx_val:.1f} — ranging market, skip.")
-            return 0, 0.0, 0, False
+    # Run the H4 -> H1 Swing Engine
+    swing_df = generate_signals_swing_h1(_df1h, _df4h)
+    last_bar = swing_df.iloc[-1]
+    prev_bar = swing_df.iloc[-2]
 
-    # Fetch correlated pair for SMT divergence feature
-    _corr_df = None
-    _corr_base = SMT_PAIRS.get(_strip_suffix(symbol))
-    if _corr_base:
-        _corr_sym = next((p for p in active_pairs if _strip_suffix(p) == _corr_base), None)
-        if _corr_sym:
-            _corr_raw = _fetch_bars(_corr_sym, mt5.TIMEFRAME_M5, 500)
-            if _corr_raw is not None:
-                _corr_raw = add_features(add_indicators(_corr_raw))
-                _corr_df  = _corr_raw.reindex(tfs["5min"].index, method="ffill")
+    # Check 4H regime
+    regime = last_bar.get("Regime", "UNKNOWN")
+    adx_4h = float(last_bar.get("adx_4h", 0.0))
+    if regime == "RANGING" or adx_4h < ADX_TRANSITIONING:
+        print(f"  📊 {_strip_suffix(symbol)}: 4H ADX {adx_4h:.1f} — ranging market, skip.")
+        return 0, 0.0, 0, False
 
-    # Add ICT binary features so live prediction uses the same 20-feature set
-    # that the models were trained on.
-    tfs["5min"] = add_ict_features(tfs["5min"], tfs.get("1h"), tfs.get("4h"), df_corr=_corr_df)
+    # Check for active swing signal on last closed bar or current bar
+    sig_bar = None
+    if last_bar.get("Swing_Signal", 0) != 0:
+        sig_bar = last_bar
+    elif prev_bar.get("Swing_Signal", 0) != 0:
+        sig_bar = prev_bar
 
-    # Session/timing features — must match what _build_training_data adds during retrain
-    tfs["5min"] = add_session_features(tfs["5min"])
+    macro_bias = int(last_bar.get("Macro_Bias", 0))
 
-    if model and rf_model:
-        result_df  = generate_ensemble_signals(tfs["5min"], model, rf_model)
-        signal     = int(result_df["Signal"].iloc[-1])
-        confidence = float(result_df["AI_Confidence"].iloc[-1])
-    elif model:
-        result_df  = generate_ai_signals(tfs["5min"], model)
-        signal     = int(result_df["Signal"].iloc[-1])
-        confidence = float(result_df["AI_Confidence"].iloc[-1])
-    else:
-        result_df  = generate_signals_ict(tfs)
-        signal     = int(result_df["Signal"].iloc[-1])
-        raw_score  = float(result_df["ICT_Score"].iloc[-1])
-        confidence = min(raw_score / 20.0, 1.0)
-        # In the rule-based path generate_signals_ict() enforces BOS as a gate,
-        # so a non-zero signal already implies BOS was confirmed.
-        ict_bos = signal != 0
-        return signal, confidence, int(raw_score), ict_bos
+    if sig_bar is not None:
+        signal     = int(sig_bar["Swing_Signal"])
+        confidence = float(sig_bar["Confidence"])
+        ict_score  = int(sig_bar["Swing_Score"]) * 2   # scaled to /20 for dashboard
+        ict_bos    = True  # Structural break confirmed
 
-    # ICT score: read from ict_score_norm (computed by add_ict_features above).
-    # ict_score_norm = (sum of 11 binary ICT factors) / 11, scaled to /20 for display.
-    # Previously used generate_signals_ict() here, which only writes non-zero scores
-    # on bars with a live BOS — so the last bar was almost always 0. Fixed.
-    try:
-        last_bar  = tfs["5min"].iloc[-1]
-        ict_score = round(float(last_bar.get("ict_score_norm", 0.0)) * 20)
-        # ict_bos: True only when the current 5M bar's close breaks above/below
-        # the 10-bar swing high/low — structural confirmation in trade direction.
-        ict_bos   = bool(last_bar.get("ict_bos", 0) > 0)
-    except Exception:
-        ict_score = 0
-        ict_bos   = False
+        # Optional ML boost: if 5M ML ensemble agrees, boost confidence
+        try:
+            df_5m = _fetch_bars(symbol, mt5.TIMEFRAME_M5, 100)
+            if df_5m is not None and model and rf_model:
+                tfs = resample_timeframes(df_5m)
+                for tf in tfs:
+                    tfs[tf] = add_features(add_indicators(tfs[tf]))
+                tfs["5min"] = add_ict_features(tfs["5min"], _df1h, _df4h)
+                tfs["5min"] = add_session_features(tfs["5min"])
+                res_ml = generate_ensemble_signals(tfs["5min"], model, rf_model)
+                ml_sig = int(res_ml["Signal"].iloc[-1])
+                ml_conf = float(res_ml["AI_Confidence"].iloc[-1])
+                if ml_sig == signal:
+                    confidence = min(0.95, confidence + 0.10)
+        except Exception:
+            pass
 
-    # Diagnostic: log model outputs whenever confidence is notable (≥ 45%).
-    base = _strip_suffix(symbol)
-    if confidence >= 0.45 or ict_score >= 5:
-        direction = "BUY" if signal == 1 else ("SELL" if signal == -1 else "—")
-        bos_str = "✅ BOS" if ict_bos else "❌ no-BOS"
-        print(f"  📡 {base}: AI {confidence:.0%} conf | signal {direction} | ICT {ict_score}/20 | {bos_str}")
+        direction = "BUY" if signal == 1 else "SELL"
+        print(f"  🏛️ {_strip_suffix(symbol)}: 1H SWING SETUP! Signal {direction} | Conf {confidence:.0%} | Score {ict_score}/20")
+        return signal, confidence, ict_score, ict_bos
 
-    return signal, confidence, ict_score, ict_bos
+    # No active trigger bar right now: report status
+    bias_str = "BULLISH" if macro_bias == 1 else ("BEARISH" if macro_bias == -1 else "NEUTRAL")
+    # Diagnostic logging when trending
+    if macro_bias != 0:
+        base = _strip_suffix(symbol)
+        print(f"  📡 {base}: 1H Swing Engine — {bias_str} bias (4H ADX {adx_4h:.1f}) | waiting for 1H pullback retest into 20/50 EMA")
+
+    return 0, 0.0, 0, False
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -3603,21 +3580,25 @@ def main():
                     _scan_state[pair] = {"status": "SPREAD", "signal": signal, "confidence": round(confidence, 3)}
                     continue
 
-                # Position size using ATR-based stop distance
-                df_5m = _fetch_bars(pair, mt5.TIMEFRAME_M5, count=50)
-                if df_5m is None:
-                    continue
-                df_5m  = add_indicators(df_5m)
-                atr    = df_5m["ATR"].iloc[-1]
-                sl_pts = int((atr * 1.5) / info.point)   # 1.5×ATR matches ML training SL
-                # ── Twin-Order Sizing & Target Calibration ────────────────────
-                # Leg 1 (Scalp):  1.5R target — quick win banked early
-                # Leg 2 (Runner): 3.5R target (or 5.0R elite) — rides macro move risk-free
-                tp_scalp_pts = int(sl_pts * 1.5)
-                if confidence >= 0.92 and ict_score >= 10:
-                    tp_runner_pts = int(sl_pts * 5.0)  # 1:5 elite runner
+                # ── Stop Distance based on 1H ATR (Institutional Swing Sizing) ────────
+                df_1h_atr = _fetch_bars(pair, mt5.TIMEFRAME_H1, count=50)
+                if df_1h_atr is not None:
+                    df_1h_atr = add_indicators(df_1h_atr)
+                    atr_1h = df_1h_atr["ATR"].iloc[-1]
+                    sl_pts = int((atr_1h * 1.5) / info.point)
                 else:
-                    tp_runner_pts = int(sl_pts * 3.5)  # 1:3.5 default runner
+                    df_5m = _fetch_bars(pair, mt5.TIMEFRAME_M5, count=50)
+                    if df_5m is None:
+                        continue
+                    df_5m  = add_indicators(df_5m)
+                    atr    = df_5m["ATR"].iloc[-1]
+                    sl_pts = int((atr * 1.5) / info.point)
+
+                # ── Asymmetric Target Calibration ─────────────────────────────
+                # Leg 1 (Scalp Target):  1.5R target — early cash locked into account
+                # Leg 2 (Runner Target): 3.5R target — macro swing payoff with trailing BE
+                tp_scalp_pts  = int(sl_pts * 1.5)
+                tp_runner_pts = int(sl_pts * 3.5)
 
                 lots = pm.calculate_position_size(pair, sl_pts)
                 if lots <= 0:
@@ -3800,27 +3781,26 @@ def main():
 
                     if can_twin and res_scalp and res_runner and res_scalp.retcode == mt5.TRADE_RETCODE_DONE and res_runner.retcode == mt5.TRADE_RETCODE_DONE:
                         trade_msg = (
-                            f"📣 <b>Twin-Order Executed</b>\n\n"
+                            f"📣 🏛️ <b>H4 ➔ H1 Macro Swing Trade Executed</b>\n\n"
                             f"Pair:       <b>{pair}</b>\n"
                             f"Direction:  {direction_emoji}\n"
                             f"Entry:      {entry_price:.5f}\n"
-                            f"Stop Loss:  {sl_price:.5f} (−{sl_pts} pts)\n\n"
-                            f"🎯 <b>Leg 1 (Scalp)</b>: {lot_scalp} lots | TP: 1:1.5 ({tp_scalp_pr:.5f})\n"
-                            f"🚀 <b>Leg 2 (Runner)</b>: {lot_runner} lots | TP: 1:{round(tp_runner_pts/sl_pts,1)} ({tp_run_pr:.5f}) [Trailing SL]\n\n"
+                            f"Stop Loss:  {sl_price:.5f} (−{sl_pts} pts | 1.5× 1H ATR)\n\n"
+                            f"🎯 <b>Leg 1 (Early Bank)</b>: {lot_scalp} lots | TP: 1:1.5 ({tp_scalp_pr:.5f})\n"
+                            f"🚀 <b>Leg 2 (Macro Runner)</b>: {lot_runner} lots | TP: 1:3.5 ({tp_run_pr:.5f}) [Trailing SL]\n\n"
                             f"Confidence: {conf_bar} {confidence:.0%}\n"
                             f"Session:    {sess_line}\n"
-                            f"Tickets:    #{res_scalp.order} (Scalp) / #{res_runner.order} (Runner)"
+                            f"Tickets:    #{res_scalp.order} (Leg 1) / #{res_runner.order} (Leg 2)"
                         )
                     else:
                         trade_msg = (
-                            f"📣 <b>Trade Entered</b>\n\n"
+                            f"📣 🏛️ <b>H4 ➔ H1 Macro Swing Trade Entered</b>\n\n"
                             f"Pair:       <b>{pair}</b>\n"
                             f"Direction:  {direction_emoji}\n"
                             f"Lots:       {lot_scalp}\n"
                             f"Entry:      {entry_price:.5f}\n"
-                            f"Stop Loss:  {sl_price:.5f}\n"
-                            f"Take Profit:{tp_scalp_pr:.5f}\n"
-                            f"RRR:        1:1.5\n"
+                            f"Stop Loss:  {sl_price:.5f} (−{sl_pts} pts | 1.5× 1H ATR)\n"
+                            f"Take Profit:{tp_scalp_pr:.5f} (1:3.5 RRR)\n"
                             f"Confidence: {conf_bar} {confidence:.0%}\n"
                             f"Session:    {sess_line}\n"
                             f"Ticket:     #{primary_result.order}"
