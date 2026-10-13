@@ -1176,6 +1176,7 @@ def generate_signals_swing_h1(df_1h: pd.DataFrame, df_4h: pd.DataFrame) -> pd.Da
     df1["Swing_Signal"] = 0
     df1["Swing_Score"]  = 0
     df1["Confidence"]   = 0.0
+    df1["Setup_Stage"]  = "RANGING"
 
     atr_series = df1["ATR"]
     df1["ATR_1H"]  = atr_series
@@ -1186,65 +1187,85 @@ def generate_signals_swing_h1(df_1h: pd.DataFrame, df_4h: pd.DataFrame) -> pd.Da
     # Evaluate bar-by-bar
     for i in range(50, len(df1)):
         regime = df1["Regime"].iloc[i]
-        if regime == "RANGING":
-            continue
-
         bias = df1["Macro_Bias"].iloc[i]
-        if bias == 0:
+
+        if regime == "RANGING" or bias == 0:
+            df1.iloc[i, df1.columns.get_loc("Setup_Stage")] = "RANGING"
+            df1.iloc[i, df1.columns.get_loc("Confidence")]  = 0.0
             continue
 
         curr_close = df1["Close"].iloc[i]
         curr_ema20 = df1["ema_20"].iloc[i]
+        curr_ema50 = df1["ema_50"].iloc[i]
         score = 5  # Base score for passing regime + bias
 
         if bias == 1:
-            # Bullish Pullback into value band (tested 20/50 EMA)
-            prev_low = df1["Low"].iloc[i-1]
-            if prev_low <= curr_ema20 * 1.002 and curr_close > curr_ema20:
-                # Structural confirmation: Break above recent 5-bar high
-                recent_hi = df1["High"].iloc[max(0, i-5):i].max()
-                if curr_close > recent_hi:
-                    # Confluences
-                    # 1. 1H FVG
-                    if df1["Low"].iloc[i-1] > df1["High"].iloc[i-3]:
-                        score += 1
-                    # 2. RSI in bullish acceleration zone
-                    rsi = df1["RSI"].iloc[i] if "RSI" in df1.columns else 50
-                    if 45 <= rsi <= 65:
-                        score += 1
-                    # 3. MACD histogram expanding
-                    if "MACD_hist" in df1.columns and df1["MACD_hist"].iloc[i] > 0:
-                        score += 1
-                    # 4. Strong trend regime
-                    if regime == "TRENDING":
-                        score += 1
+            # Confluences
+            if df1["Low"].iloc[i-1] > df1["High"].iloc[i-3]:
+                score += 1
+            rsi = df1["RSI"].iloc[i] if "RSI" in df1.columns else 50
+            if 45 <= rsi <= 65:
+                score += 1
+            if "MACD_hist" in df1.columns and df1["MACD_hist"].iloc[i] > 0:
+                score += 1
+            if regime == "TRENDING":
+                score += 1
 
-                    conf = min(0.60 + (score - 5) * 0.08, 0.95)
-                    df1.iloc[i, df1.columns.get_loc("Swing_Signal")] = 1
-                    df1.iloc[i, df1.columns.get_loc("Swing_Score")]  = score
-                    df1.iloc[i, df1.columns.get_loc("Confidence")]   = conf
+            prev_low = df1["Low"].iloc[i-1]
+            is_pullback = (prev_low <= curr_ema20 * 1.004) and (curr_close >= curr_ema50 * 0.998)
+            recent_hi = df1["High"].iloc[max(0, i-5):i].max()
+            is_breakout = (curr_close > recent_hi) and (curr_close > curr_ema20)
+
+            if is_pullback and is_breakout:
+                conf = min(0.68 + (score - 5) * 0.07, 0.95)
+                df1.iloc[i, df1.columns.get_loc("Setup_Stage")]  = "TRIGGER"
+                df1.iloc[i, df1.columns.get_loc("Swing_Signal")] = 1
+                df1.iloc[i, df1.columns.get_loc("Swing_Score")]  = score
+                df1.iloc[i, df1.columns.get_loc("Confidence")]   = conf
+            elif is_pullback:
+                conf = min(0.55 + (score - 5) * 0.05, 0.80)
+                df1.iloc[i, df1.columns.get_loc("Setup_Stage")]  = "VALUE_TEST"
+                df1.iloc[i, df1.columns.get_loc("Swing_Score")]  = score
+                df1.iloc[i, df1.columns.get_loc("Confidence")]   = conf
+            else:
+                conf = min(0.42 + (score - 5) * 0.04, 0.62)
+                df1.iloc[i, df1.columns.get_loc("Setup_Stage")]  = "TRENDING"
+                df1.iloc[i, df1.columns.get_loc("Swing_Score")]  = score
+                df1.iloc[i, df1.columns.get_loc("Confidence")]   = conf
 
         elif bias == -1:
-            # Bearish Pullback into value band
-            prev_high = df1["High"].iloc[i-1]
-            if prev_high >= curr_ema20 * 0.998 and curr_close < curr_ema20:
-                recent_lo = df1["Low"].iloc[max(0, i-5):i].min()
-                if curr_close < recent_lo:
-                    # Confluences
-                    if df1["High"].iloc[i-1] < df1["Low"].iloc[i-3]:
-                        score += 1
-                    rsi = df1["RSI"].iloc[i] if "RSI" in df1.columns else 50
-                    if 35 <= rsi <= 55:
-                        score += 1
-                    if "MACD_hist" in df1.columns and df1["MACD_hist"].iloc[i] < 0:
-                        score += 1
-                    if regime == "TRENDING":
-                        score += 1
+            # Confluences
+            if df1["High"].iloc[i-1] < df1["Low"].iloc[i-3]:
+                score += 1
+            rsi = df1["RSI"].iloc[i] if "RSI" in df1.columns else 50
+            if 35 <= rsi <= 55:
+                score += 1
+            if "MACD_hist" in df1.columns and df1["MACD_hist"].iloc[i] < 0:
+                score += 1
+            if regime == "TRENDING":
+                score += 1
 
-                    conf = min(0.60 + (score - 5) * 0.08, 0.95)
-                    df1.iloc[i, df1.columns.get_loc("Swing_Signal")] = -1
-                    df1.iloc[i, df1.columns.get_loc("Swing_Score")]  = score
-                    df1.iloc[i, df1.columns.get_loc("Confidence")]   = conf
+            prev_high = df1["High"].iloc[i-1]
+            is_pullback = (prev_high >= curr_ema20 * 0.996) and (curr_close <= curr_ema50 * 1.002)
+            recent_lo = df1["Low"].iloc[max(0, i-5):i].min()
+            is_breakout = (curr_close < recent_lo) and (curr_close < curr_ema20)
+
+            if is_pullback and is_breakout:
+                conf = min(0.68 + (score - 5) * 0.07, 0.95)
+                df1.iloc[i, df1.columns.get_loc("Setup_Stage")]  = "TRIGGER"
+                df1.iloc[i, df1.columns.get_loc("Swing_Signal")] = -1
+                df1.iloc[i, df1.columns.get_loc("Swing_Score")]  = score
+                df1.iloc[i, df1.columns.get_loc("Confidence")]   = conf
+            elif is_pullback:
+                conf = min(0.55 + (score - 5) * 0.05, 0.80)
+                df1.iloc[i, df1.columns.get_loc("Setup_Stage")]  = "VALUE_TEST"
+                df1.iloc[i, df1.columns.get_loc("Swing_Score")]  = score
+                df1.iloc[i, df1.columns.get_loc("Confidence")]   = conf
+            else:
+                conf = min(0.42 + (score - 5) * 0.04, 0.62)
+                df1.iloc[i, df1.columns.get_loc("Setup_Stage")]  = "TRENDING"
+                df1.iloc[i, df1.columns.get_loc("Swing_Score")]  = score
+                df1.iloc[i, df1.columns.get_loc("Confidence")]   = conf
 
     return df1
 

@@ -225,6 +225,9 @@ with left:
 
     _HEAT_MAP = {
         "TRADED":      ("🔥", c["success"],  "TRADED"),
+        "TRIGGER":     ("🎯", c["success"],  "TRIGGER READY"),
+        "VALUE_TEST":  ("💎", c["accent"],   "VALUE RETEST"),
+        "TRENDING":    ("📡", c["accent2"],  "TREND ACTIVE"),
         "WEAK_ICT":    ("🧱", c["warning"],  "WEAK ICT"),
         "NO_BOS":      ("⛔", c["warning"],  "NO BOS"),
         "LOW_CONF":    ("⚡", c["warning"],  "LOW CONF"),
@@ -236,6 +239,7 @@ with left:
         "OFF_SESSION":  ("😴", c["text_dim"], "OFF SESSION"),
         "DROUGHT_WAIT": ("🏜️", c["text_dim"], "DROUGHT — WAITING FOR LONDON"),
         "NOT_TODAY":    ("🚫", c["text_dim"], "NOT ACTIVE TODAY"),
+        "RANGING":     ("📊", c["text_dim"], "RANGING CHOP"),
         "SPREAD":      ("⏳", c["text_dim"], "WIDE SPREAD"),
         "MAX_RISK":    ("⛔", c["danger"],   "MAX RISK"),
         "DAILY_LIMIT": ("⛔", c["danger"],   "DAILY LIMIT"),
@@ -246,6 +250,7 @@ with left:
     }
     # Statuses that mean this pair is actively in scope for today's session
     _ACTIVE_STATUSES = {"WATCHING", "PENDING", "LOW_CONF", "WEAK_ICT", "NO_BOS", "HOLDING",
+                        "TRIGGER", "VALUE_TEST", "TRENDING",
                         "TRADED", "COOLDOWN", "NEWS", "CORRELATED",
                         "SPREAD", "MAX_RISK", "DAILY_LIMIT", "LOSS_GUARD", "FAILED",
                         "DROUGHT_WAIT"}
@@ -278,6 +283,8 @@ with left:
                 status  = info.get("status", "WATCHING")
                 signal  = info.get("signal", 0)
                 conf    = info.get("confidence", 0.0)
+                adx_val = info.get("adx_4h", 0.0)
+                bias    = info.get("macro_bias", "")
                 heat, heat_col, heat_lbl = _HEAT_MAP.get(status, ("⚡", c["text_dim"], status))
 
                 is_not_today = status == "NOT_TODAY"
@@ -289,11 +296,39 @@ with left:
                     conf_pct = "NOT ACTIVE TODAY"
                     bar_w    = 0
                     bar_col  = c["text_dim"]
+                elif signal == 1:
+                    sig_lbl  = "🟢 BUY (1:3.5 RRR)"
+                    conf_pct = f"{conf:.0%}"
+                    bar_w    = int(conf * 100)
+                    bar_col  = c["success"]
+                elif signal == -1:
+                    sig_lbl  = "🔴 SELL (1:3.5 RRR)"
+                    conf_pct = f"{conf:.0%}"
+                    bar_w    = int(conf * 100)
+                    bar_col  = c["success"]
+                elif status == "VALUE_TEST":
+                    sig_lbl  = f"💎 {bias} RETEST"
+                    conf_pct = f"{conf:.0%}" if conf > 0 else "—"
+                    bar_w    = int(conf * 100)
+                    bar_col  = c["accent"]
+                elif status == "TRENDING":
+                    sig_lbl  = f"📡 {bias} TREND"
+                    conf_pct = f"{conf:.0%}" if conf > 0 else "—"
+                    bar_w    = int(conf * 100)
+                    bar_col  = c["accent2"]
+                elif status == "RANGING":
+                    sig_lbl  = "📊 RANGING CHOP"
+                    conf_pct = "—"
+                    bar_w    = 0
+                    bar_col  = c["text_dim"]
                 else:
-                    sig_lbl  = "🟢 BUY" if signal == 1 else ("🔴 SELL" if signal == -1 else "—")
+                    sig_lbl  = "—"
                     conf_pct = f"{conf:.0%}" if conf > 0 else "—"
                     bar_w    = int(conf * 100)
                     bar_col  = c["success"] if conf >= 0.70 else (c["warning"] if conf >= 0.50 else c["danger"])
+
+                # Macro context tag
+                macro_sub = f'<div style="font-size:10px; color:{c["text_dim"]}; margin-top:4px;">4H ADX: {adx_val:.1f} · {bias}</div>' if adx_val > 0 else ""
 
                 # ACTIVE badge shown on pairs that are in scope for today
                 active_badge = (
@@ -319,7 +354,9 @@ with left:
                         f'</div>'
                         f'<div class="recall-bar-wrap">'
                         f'<div class="recall-bar" style="width:{bar_w}%; background:{bar_col};"></div>'
-                        f'</div></div>',
+                        f'</div>'
+                        f'{macro_sub}'
+                        f'</div>',
                         unsafe_allow_html=True,
                     )
             if scan_updated:

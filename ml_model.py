@@ -12,6 +12,7 @@ A signal only fires when both XGBoost AND RF agree AND both exceed MIN_CONFIDENC
 
 import os
 import numpy as np
+import pandas as pd
 import joblib
 from xgboost import XGBClassifier
 from sklearn.ensemble import RandomForestClassifier
@@ -414,3 +415,150 @@ def generate_ensemble_signals(df, xgb_model, rf_model):
     df.loc[X_valid.index, "Signal"]        = final_sigs
     df.loc[X_valid.index, "AI_Confidence"] = final_confs
     return df
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 1H MACRO SWING AI ENSEMBLE (TWO-STAGE ARCHITECTURE)
+#
+# Symmetric 3-class target:
+#   Class 0: SELL (-1) — Price hits -3.5R before +1.5R
+#   Class 1: CHOP (0)  — Neither target hit within 40-bar horizon
+#   Class 2: BUY (+1)  — Price hits +3.5R before -1.5R
+# ══════════════════════════════════════════════════════════════════════════════
+
+MACRO_FEATURE_COLS = [
+    "dist_ema20",
+    "dist_ema50",
+    "dist_ema200",
+    "ema_alignment",
+    "dist_sma50_4h",
+    "adx_4h",
+    "rsi_1h",
+    "macd_hist_1h",
+    "bar_range_atr",
+    "hour_sin",
+    "hour_cos",
+]
+
+
+def extract_macro_features(df_1h, df_4h):
+    """Extracts 1H features with 4H macro context for ML training & inference."""
+    df1 = df_1h.copy()
+    df4 = df_4h.copy()
+
+    # 1H EMAs
+    df1["ema_20"] = df1["Close"].ewm(span=20, adjust=False).mean()
+    df1["ema_50"] = df1["Close"].ewm(span=50, adjust=False).mean()
+    df1["ema_200"] = df1["Close"].ewm(span=200, adjust=False).mean()
+
+    # ATR
+    tr1 = df1["High"] - df1["Low"]
+    tr2 = (df1["High"] - df1["Close"].shift()).abs()
+    tr3 = (df1["Low"] - df1["Close"].shift()).abs()
+    df1["ATR"] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1).rolling(14).mean()
+
+    # RSI
+    delta = df1["Close"].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+    rs = gain / (loss + 1e-9)
+    df1["RSI"] = 100 - (100 / (1 + rs))
+
+    # MACD
+    ema12 = df1["Close"].ewm(span=12, adjust=False).mean()
+    ema26 = df1["Close"].ewm(span=26, adjust=False).mean()
+    macd_line = ema12 - ema26
+    signal_line = macd_line.ewm(span=9, adjust=False).mean()
+    df1["MACD_hist"] = macd_line - signal_line
+
+    # 4H ADX & SMA50
+    tr4 = pd.concat([df4["High"] - df4["Low"], (df4["High"] - df4["Close"].shift()).abs(), (df4["Low"] - df4["Close"].shift()).abs()], axis=1).max(axis=1)
+    atr4 = tr4.rolling(14).mean()
+    up = df4["High"].diff()
+    down = -df4["Low"].diff()
+    plus_dm = np.where((up > down) & (up > 0), up, 0)
+    minus_dm = np.where((down > up) & (down > 0), down, 0)
+    plus_di = 100 * (pd.Series(plus_dm, index=df4.index).rolling(14).mean() / (atr4 + 1e-9))
+    minus_di = 100 * (pd.Series(minus_dm, index=df4.index).rolling(14).mean() / (atr4 + 1e-9))
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di + 1e-9)
+    df4["ADX"] = dx.rolling(14).mean()
+    df4["sma_50"] = df4["Close"].rolling(50).mean()
+
+    df1["adx_4h"] = df4["ADX"].reindex(df1.index, method="ffill").fillna(20.0)
+    df1["sma50_4h"] = df4["sma_50"].reindex(df1.index, method="ffill").fillna(df1["Close"])
+
+    # Features
+    feats = pd.DataFrame(index=df1.index)
+    atr_norm = df1["ATR"].replace(0, np.nan).fillna(1e-4)
+    feats["dist_ema20"] = (df1["Close"] - df1["ema_20"]) / atr_norm
+    feats["dist_ema50"] = (df1["Close"] - df1["ema_50"]) / atr_norm
+    feats["dist_ema200"] = (df1["Close"] - df1["ema_200"]) / atr_norm
+    feats["ema_alignment"] = np.where((df1["ema_20"] > df1["ema_50"]) & (df1["ema_50"] > df1["ema_200"]), 1,
+                             np.where((df1["ema_20"] < df1["ema_50"]) & (df1["ema_50"] < df1["ema_200"]), -1, 0))
+    feats["dist_sma50_4h"] = (df1["Close"] - df1["sma50_4h"]) / atr_norm
+    feats["adx_4h"] = df1["adx_4h"]
+    feats["rsi_1h"] = df1["RSI"].fillna(50)
+    feats["macd_hist_1h"] = df1["MACD_hist"].fillna(0)
+    feats["bar_range_atr"] = (df1["High"] - df1["Low"]) / atr_norm
+
+    hours = df1.index.hour if hasattr(df1.index, "hour") else pd.Series(0, index=df1.index)
+    feats["hour_sin"] = np.sin(2 * np.pi * hours / 24)
+    feats["hour_cos"] = np.cos(2 * np.pi * hours / 24)
+
+    return feats.fillna(0.0)
+
+
+def load_macro_pair_models(base_name: str) -> tuple:
+    """Loads 1H macro models (xgb, rf) for a pair."""
+    clean = base_name.upper().replace("/", "")
+    xgb_p = os.path.join(MODEL_DIR, f"macro_xgb_{clean}.pkl")
+    rf_p  = os.path.join(MODEL_DIR, f"macro_rf_{clean}.pkl")
+    xgb = joblib.load(xgb_p) if os.path.exists(xgb_p) else None
+    rf  = joblib.load(rf_p) if os.path.exists(rf_p) else None
+    return xgb, rf
+
+
+def evaluate_macro_ai_conviction(df_1h, df_4h, xgb_model, rf_model, macro_bias: int) -> float | None:
+    """
+    Evaluates 1H ML ensemble conviction for the current candidate setup.
+    Returns a calibrated float 0.0–1.0, or None if models not available.
+    """
+    if xgb_model is None and rf_model is None:
+        return None
+
+    feats = extract_macro_features(df_1h, df_4h)
+    if feats.empty:
+        return None
+
+    X_last = feats.iloc[[-1]][MACRO_FEATURE_COLS]
+
+    probs = []
+    for model in (xgb_model, rf_model):
+        if model is None:
+            continue
+        try:
+            if hasattr(model, "n_jobs"):
+                model.n_jobs = 1
+            p = model.predict_proba(X_last)[0]  # [p_sell, p_chop, p_buy]
+            probs.append(p)
+        except Exception:
+            pass
+
+    if not probs:
+        return None
+
+    avg_p = np.mean(probs, axis=0)  # [p_sell, p_chop, p_buy]
+    p_sell, p_chop, p_buy = avg_p[0], avg_p[1], avg_p[2]
+
+    # Target probability relative to opposite side
+    if macro_bias == 1:
+        rel_edge = p_buy / (p_buy + p_sell + 1e-6)
+        conviction = float(np.clip(0.40 + rel_edge * 0.50, 0.40, 0.95))
+        return round(conviction, 3)
+    elif macro_bias == -1:
+        rel_edge = p_sell / (p_buy + p_sell + 1e-6)
+        conviction = float(np.clip(0.40 + rel_edge * 0.50, 0.40, 0.95))
+        return round(conviction, 3)
+
+    return 0.0
+

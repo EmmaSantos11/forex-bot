@@ -36,6 +36,7 @@ from ml_model import (
     generate_ai_signals, generate_ensemble_signals,
     prepare_ml_data, train_model, train_ensemble, train_pair_ensemble,
     add_session_features, RF_MODEL_PATH,
+    load_macro_pair_models, evaluate_macro_ai_conviction,
 )
 from portfolio_manager import PortfolioManager
 from live_trader import place_trade
@@ -1245,77 +1246,71 @@ def _fetch_bars(symbol: str, timeframe: int, count: int = 500):
 # SIGNAL GENERATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_signal(symbol: str, model, rf_model=None) -> tuple:
+def get_signal(symbol: str, model=None, rf_model=None) -> tuple:
     """
-    H4 ➔ H1 Macro Swing Engine (Validated with 1:3.5 RRR, Spread-Immune):
-      1. Pulls 4H and 1H bars directly from MT5.
-      2. Evaluates 4H ADX regime (>= 20) and 4H/1H structural trend alignment.
-      3. Tests 1H pullback retest into 20/50 EMA value zone.
-      4. Detects 1H Break of Structure / reclaim in trend direction.
-      5. Cross-checks with ML models (XGB + RF) and ICT confluences.
-      Returns: (signal, confidence, ict_score, ict_bos)
+    Two-Stage Architecture (Option A + Option B Fusion):
+      Stage 1: H4 ➔ H1 Macro Swing Engine (Structural Setup, Regime, Risk Envelope)
+      Stage 2: 1H Macro AI Ensemble (Statistical Conviction & Quality Scoring)
+    Returns: (signal, confidence, ict_score, ict_bos, setup_stage, adx_4h, macro_bias)
     """
     _df4h = _fetch_bars(symbol, mt5.TIMEFRAME_H4, 500)
     _df1h = _fetch_bars(symbol, mt5.TIMEFRAME_H1, 400)
     if _df4h is None or _df1h is None or len(_df4h) < 50 or len(_df1h) < 50:
-        return 0, 0.0, 0, False
+        return 0, 0.0, 0, False, "RANGING", 0.0, 0
 
-    # Run the H4 -> H1 Swing Engine
     swing_df = generate_signals_swing_h1(_df1h, _df4h)
     last_bar = swing_df.iloc[-1]
     prev_bar = swing_df.iloc[-2]
 
-    # Check 4H regime
-    regime = last_bar.get("Regime", "UNKNOWN")
-    adx_4h = float(last_bar.get("adx_4h", 0.0))
-    if regime == "RANGING" or adx_4h < ADX_TRANSITIONING:
-        print(f"  📊 {_strip_suffix(symbol)}: 4H ADX {adx_4h:.1f} — ranging market, skip.")
-        return 0, 0.0, 0, False
+    adx_4h          = float(last_bar.get("adx_4h", 0.0))
+    macro_bias      = int(last_bar.get("Macro_Bias", 0))
+    setup_stage     = str(last_bar.get("Setup_Stage", "RANGING"))
+    structural_conf = float(last_bar.get("Confidence", 0.0))
+    swing_score     = int(last_bar.get("Swing_Score", 0))
 
-    # Check for active swing signal on last closed bar or current bar
+    # Stage 2: Evaluate 1H Macro AI Ensemble Conviction
+    ai_conviction = None
+    if macro_bias != 0 and (model is not None or rf_model is not None):
+        try:
+            ai_conviction = evaluate_macro_ai_conviction(_df1h, _df4h, model, rf_model, macro_bias)
+        except Exception:
+            ai_conviction = None
+
+    # Fuse Stage 1 and Stage 2
+    if ai_conviction is not None and setup_stage in ("TRIGGER", "VALUE_TEST", "TRENDING"):
+        confidence = round(0.50 * structural_conf + 0.50 * ai_conviction, 3)
+    else:
+        confidence = round(structural_conf, 3)
+
+    ict_score = max(int(swing_score * 2), 10 if setup_stage == "TRIGGER" else (6 if setup_stage == "VALUE_TEST" else 0))
+
+    # Check for active trigger
     sig_bar = None
     if last_bar.get("Swing_Signal", 0) != 0:
         sig_bar = last_bar
     elif prev_bar.get("Swing_Signal", 0) != 0:
         sig_bar = prev_bar
 
-    macro_bias = int(last_bar.get("Macro_Bias", 0))
-
-    if sig_bar is not None:
-        signal     = int(sig_bar["Swing_Signal"])
-        confidence = float(sig_bar["Confidence"])
-        ict_score  = int(sig_bar["Swing_Score"]) * 2   # scaled to /20 for dashboard
-        ict_bos    = True  # Structural break confirmed
-
-        # Optional ML boost: if 5M ML ensemble agrees, boost confidence
-        try:
-            df_5m = _fetch_bars(symbol, mt5.TIMEFRAME_M5, 100)
-            if df_5m is not None and model and rf_model:
-                tfs = resample_timeframes(df_5m)
-                for tf in tfs:
-                    tfs[tf] = add_features(add_indicators(tfs[tf]))
-                tfs["5min"] = add_ict_features(tfs["5min"], _df1h, _df4h)
-                tfs["5min"] = add_session_features(tfs["5min"])
-                res_ml = generate_ensemble_signals(tfs["5min"], model, rf_model)
-                ml_sig = int(res_ml["Signal"].iloc[-1])
-                ml_conf = float(res_ml["AI_Confidence"].iloc[-1])
-                if ml_sig == signal:
-                    confidence = min(0.95, confidence + 0.10)
-        except Exception:
-            pass
-
+    if sig_bar is not None and setup_stage == "TRIGGER":
+        signal    = int(sig_bar["Swing_Signal"])
         direction = "BUY" if signal == 1 else "SELL"
-        print(f"  🏛️ {_strip_suffix(symbol)}: 1H SWING SETUP! Signal {direction} | Conf {confidence:.0%} | Score {ict_score}/20")
-        return signal, confidence, ict_score, ict_bos
+        ai_tag    = f"(AI Conviction: {ai_conviction:.0%})" if ai_conviction else ""
+        print(f"  🏛️ {_strip_suffix(symbol)}: 1H SWING SETUP! Signal {direction} | Conf {confidence:.0%} {ai_tag} | Score {ict_score}/20")
+        return signal, confidence, ict_score, True, "TRIGGER", adx_4h, macro_bias
 
-    # No active trigger bar right now: report status
+    # Diagnostic logging
     bias_str = "BULLISH" if macro_bias == 1 else ("BEARISH" if macro_bias == -1 else "NEUTRAL")
-    # Diagnostic logging when trending
-    if macro_bias != 0:
-        base = _strip_suffix(symbol)
-        print(f"  📡 {base}: 1H Swing Engine — {bias_str} bias (4H ADX {adx_4h:.1f}) | waiting for 1H pullback retest into 20/50 EMA")
+    base = _strip_suffix(symbol)
+    ai_note = f" · AI: {ai_conviction:.0%}" if ai_conviction else ""
+    if setup_stage == "VALUE_TEST":
+        print(f"  💎 {base}: 1H EMA Value Band Retest ({bias_str} · ADX {adx_4h:.1f}{ai_note}) | Conf {confidence:.0%}")
+    elif setup_stage == "TRENDING":
+        print(f"  📡 {base}: 1H Trend Active ({bias_str} · ADX {adx_4h:.1f}{ai_note}) | waiting for pullback")
+    elif setup_stage == "RANGING":
+        print(f"  📊 {base}: 4H ADX {adx_4h:.1f} — ranging market, skip.")
 
-    return 0, 0.0, 0, False
+    return 0, confidence, ict_score, False, setup_stage, adx_4h, macro_bias
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -3043,15 +3038,18 @@ def main():
     else:
         print("  ℹ️  No retrain date on record (first run or state was cleared).")
 
-    # ── Load per-pair models (override global where available) ───────────────
-    print("\n🧠 Loading per-pair models...")
+    # ── Load per-pair models (prioritise 1H Macro AI Ensemble) ───────────────
+    print("\n🧠 Loading per-pair 1H Macro AI models...")
     has_pair_models = False
     for pair in active_pairs:
         base = _strip_suffix(pair)
-        xgb_p, rf_p = load_pair_models(base)
+        xgb_p, rf_p = load_macro_pair_models(base)
+        if xgb_p is None and rf_p is None:
+            xgb_p, rf_p = load_pair_models(base)
         pair_models[pair] = (xgb_p, rf_p)
         if xgb_p or rf_p:
             has_pair_models = True
+            print(f"  ✅ 1H Macro AI loaded for {base}")
     if not has_pair_models:
         print("  ⚠️  No per-pair models yet — will train per-pair on Sunday.")
 
@@ -3367,161 +3365,106 @@ def main():
             # ── Evaluate each active pair ─────────────────────────────────
             _scan_state.clear()
 
-            # Mark off-schedule pairs so dashboard shows NOT ACTIVE TODAY
-            for _op in _off_schedule:
-                _scan_state[_op] = {"status": "NOT_TODAY", "signal": 0, "confidence": 0.0}
+            for pair in active_pairs:
 
-            for pair in _pairs_today:
+                # ── Run Two-Stage Engine (1H Structure + 1H AI Conviction) ──────
+                _pair_xgb, _pair_rf = pair_models.get(pair, (model, rf_model))
+                signal, confidence, ict_score, ict_bos, setup_stage, adx_4h, macro_bias = get_signal(pair, _pair_xgb, _pair_rf)
+
+                _scan_state[pair] = {
+                    "status":     setup_stage,
+                    "signal":     signal,
+                    "confidence": round(confidence, 3),
+                    "ict_score":  ict_score,
+                    "adx_4h":     round(adx_4h, 1),
+                    "macro_bias": "BULLISH" if macro_bias == 1 else ("BEARISH" if macro_bias == -1 else "NEUTRAL"),
+                }
+
+                # If pair is not scheduled for execution today, scan is recorded but do not open trade
+                if pair in _off_schedule:
+                    continue
+
+                # If no trade trigger fired on this bar, setup analysis is done
+                if signal == 0:
+                    if pair in _pending_signals:
+                        _pending_signals.pop(pair, None)
+                        _save_bot_state()   # signal gone — clear persisted pending state
+                    continue
+
+                # ── Trade Execution Gates (Checked only when signal != 0) ───────
 
                 # Skip if we already hold a position on this pair
                 existing = mt5.positions_get(symbol=pair)
                 if existing and len(existing) > 0:
-                    _scan_state[pair] = {"status": "HOLDING", "signal": 0, "confidence": 0.0}
+                    _scan_state[pair]["status"] = "HOLDING"
                     continue
 
                 if not pm.can_open_trade():
-                    _scan_state[pair] = {"status": "MAX_RISK", "signal": 0, "confidence": 0.0}
+                    _scan_state[pair]["status"] = "MAX_RISK"
                     print("⛔ Max portfolio risk reached — no new trades this cycle.")
                     break
 
                 # Global daily cap — hard ceiling across all pairs
                 if _global_trade_count >= GLOBAL_DAILY_TRADE_CAP:
-                    _scan_state[pair] = {"status": "DAILY_LIMIT", "signal": 0, "confidence": 0.0}
+                    _scan_state[pair]["status"] = "DAILY_LIMIT"
                     continue
 
-                # Drought guard — if no trade in DROUGHT_HOURS, block Asian KZ and
-                # wait for London.  A professional trader doesn't lower standards
-                # after a quiet period; if anything they're more selective.
-                # Asian 01-03 UTC has the thinnest liquidity — not where you want
-                # to re-enter after a long break.  London (07:00 UTC) is the floor.
+                # Drought guard — if no trade in DROUGHT_HOURS, block Asian KZ and wait for London
                 if DROUGHT_BLOCK_ASIAN and _last_successful_trade_ts > 0:
                     _drought_hours = (time.time() - _last_successful_trade_ts) / 3600
                     if _drought_hours >= DROUGHT_HOURS and _current_kz_bucket() == "asian":
-                        if pair == _pairs_today[0]:  # log once per cycle
-                            print(f"💤 Drought ({_drought_hours:.0f}h since last trade) — "
-                                  f"skipping Asian KZ, waiting for London open (07:00 UTC).")
-                        _scan_state[pair] = {"status": "DROUGHT_WAIT", "signal": 0, "confidence": 0.0}
+                        _scan_state[pair]["status"] = "DROUGHT_WAIT"
                         continue
 
-                # Session kill-zone budget — ensures trades are spread across London
-                # and NY sessions rather than all firing before noon.
-                # "other" bucket has max=0 by design (grey periods, not kill zones).
-                # Show OFF_SESSION for grey periods so the user doesn't see DAILY_LIMIT
-                # when the daily cap hasn't actually been used up.
+                # Session kill-zone budget
                 if _kz_budget_remaining() <= 0:
                     _kz = _current_kz_bucket()
-                    if _kz == "other":
-                        _scan_state[pair] = {"status": "OFF_SESSION", "signal": 0, "confidence": 0.0}
-                    else:
-                        if pair == list(active_pairs)[0]:
-                            print(f"⏸️  {_kz.title()} kill-zone budget exhausted — waiting for next session.")
-                        _scan_state[pair] = {"status": "DAILY_LIMIT", "signal": 0, "confidence": 0.0}
+                    _scan_state[pair]["status"] = "OFF_SESSION" if _kz == "other" else "DAILY_LIMIT"
                     continue
 
                 # Consecutive-loss guard — stop after MAX_DAILY_LOSSES SL hits today
                 if _daily_losses >= MAX_DAILY_LOSSES:
-                    _scan_state[pair] = {"status": "LOSS_GUARD", "signal": 0, "confidence": 0.0}
+                    _scan_state[pair]["status"] = "LOSS_GUARD"
                     continue
 
-                # Global inter-trade cooldown — 60 min between any two trades
+                # Global inter-trade cooldown
                 secs_since_last = time.time() - _last_trade_time
                 if _last_trade_time > 0 and secs_since_last < GLOBAL_TRADE_COOLDOWN_SECS:
-                    mins_left = int((GLOBAL_TRADE_COOLDOWN_SECS - secs_since_last) / 60)
-                    _scan_state[pair] = {"status": "COOLDOWN", "signal": 0, "confidence": 0.0}
-                    if pair == list(active_pairs)[0]:   # log once per cycle, not per pair
-                        print(f"⏸️  Global cooldown: {mins_left}m until next trade window.")
+                    _scan_state[pair]["status"] = "COOLDOWN"
                     continue
 
                 # Max 2 trades per pair per day (hard daily cap)
                 if _pair_trade_count.get(pair, 0) >= 2:
-                    _scan_state[pair] = {"status": "DAILY_LIMIT", "signal": 0, "confidence": 0.0}
+                    _scan_state[pair]["status"] = "DAILY_LIMIT"
                     continue
 
-                # Per-session pair limit — max 1 trade per pair per kill-zone session.
-                # Prevents 2 trades in the same London window; 1 London + 1 NY is fine.
+                # Per-session pair limit
                 _kz_now = _current_kz_bucket()
                 if _kz_now != "other":
                     _pair_sess_done = _pair_session_trade_counts.get(pair, {}).get(_kz_now, 0)
                     if _pair_sess_done >= 1:
-                        _scan_state[pair] = {"status": "DAILY_LIMIT", "signal": 0, "confidence": 0.0}
+                        _scan_state[pair]["status"] = "DAILY_LIMIT"
                         continue
 
                 # Loss cooldown — 3-hour lockout after a stop-loss on this pair
                 last_loss = _pair_loss_cooldown.get(pair, 0)
                 if time.time() - last_loss < LOSS_COOLDOWN_SECS:
-                    remaining = int((LOSS_COOLDOWN_SECS - (time.time() - last_loss)) / 60)
-                    if pair not in _news_skip_active:
-                        _news_skip_active.add(pair)
-                        print(f"⏸️  {pair}: SL cooldown — {remaining}m remaining.")
-                    _scan_state[pair] = {"status": "COOLDOWN", "signal": 0, "confidence": 0.0}
+                    _scan_state[pair]["status"] = "COOLDOWN"
                     continue
 
                 # Session filter — only trade pairs suited to the active session
                 if not session_suits_pair(pair, current_sessions):
-                    _scan_state[pair] = {"status": "OFF_SESSION", "signal": 0, "confidence": 0.0}
+                    _scan_state[pair]["status"] = "OFF_SESSION"
                     continue
 
-                # Phase A: news filter — skip if within 30 min of HIGH news
+                # News filter — skip if within 30 min of HIGH news
                 if is_news_time(pair):
-                    if pair not in _news_skip_active:
-                        _news_skip_active.add(pair)
-                        print(f"📰 {pair}: HIGH-impact news — pausing until window clears.")
-                    _scan_state[pair] = {"status": "NEWS", "signal": 0, "confidence": 0.0}
+                    _scan_state[pair]["status"] = "NEWS"
                     continue
-                else:
-                    _news_skip_active.discard(pair)   # window cleared — reset
 
-                # Phase A: correlation filter — skip if correlated pair is open
+                # Correlation filter — skip if correlated pair is open
                 if has_correlated_open(pair):
-                    if pair not in _news_skip_active:
-                        _news_skip_active.add(pair)
-                        print(f"🔗 {pair}: Correlated pair already open — skipping.")
-                    _scan_state[pair] = {"status": "CORRELATED", "signal": 0, "confidence": 0.0}
-                    continue
-
-                # Use pair-specific model if available, fall back to global
-                _pair_xgb, _pair_rf = pair_models.get(pair, (model, rf_model))
-                signal, confidence, ict_score, ict_bos = get_signal(pair, _pair_xgb, _pair_rf)
-                if signal == 0:
-                    if pair in _pending_signals:
-                        _pending_signals.pop(pair, None)
-                        _save_bot_state()   # signal gone — clear persisted pending state
-                    else:
-                        _pending_signals.pop(pair, None)
-                    if (ict_score >= ICT_ALERT_THRESHOLD
-                            and time.time() - _ict_alert_sent.get(pair, 0) > ICT_ALERT_COOLDOWN):
-                        _ict_alert_sent[pair] = time.time()
-                        _pair_base = _strip_suffix(pair)
-                        send_to_channel(
-                            f"👀 <b>Setup Forming — {_pair_base}</b>\n\n"
-                            f"ICT confluence: <b>{ict_score}/20</b> factors confirmed\n"
-                            f"AI watching but not yet confident enough to enter.\n\n"
-                            f"Session: {_sessions_text()}\n\n"
-                            f"Bot will enter automatically if AI confidence clears the threshold. 🎯"
-                        )
-                    _scan_state[pair] = {"status": "WATCHING", "signal": 0, "confidence": round(confidence, 3), "ict_score": ict_score}
-                    continue
-
-                # ── ICT hard gate — must pass before AI confidence is checked ──
-                # Asian KZ uses a higher bar: thinner liquidity means a marginal
-                # setup that would work in London can easily fail at 01-03 UTC.
-                _eff_ict_min = (ASIAN_KZ_MIN_ICT_SCORE
-                                if _current_kz_bucket() == "asian"
-                                else ICT_MIN_SCORE)
-                if ict_score < _eff_ict_min:
-                    _pending_signals.pop(pair, None)
-                    _ict_label = f"Asian KZ min {_eff_ict_min}" if _eff_ict_min > ICT_MIN_SCORE else f"minimum {_eff_ict_min}"
-                    print(f"  ⛔ {pair}: ICT {ict_score}/20 below {_ict_label} — skip.")
-                    _scan_state[pair] = {"status": "WEAK_ICT", "signal": signal, "confidence": round(confidence, 3), "ict_score": ict_score}
-                    continue
-
-                # ── BOS gate — Break of Structure is a non-negotiable confirmation ──
-                # Without BOS the market hasn't structurally committed to the direction.
-                # This is the core ICT requirement: sweep → BOS → entry.
-                if ICT_REQUIRE_BOS and not ict_bos:
-                    _pending_signals.pop(pair, None)
-                    print(f"  ⛔ {pair}: No BOS on 5M — price hasn't broken structure yet, skip.")
-                    _scan_state[pair] = {"status": "NO_BOS", "signal": signal, "confidence": round(confidence, 3), "ict_score": ict_score}
+                    _scan_state[pair]["status"] = "CORRELATED"
                     continue
 
                 # ── Confidence gate ───────────────────────────────────────
@@ -3537,11 +3480,11 @@ def main():
                 _passes = confidence >= _min_conf
                 if not _passes:
                     _pending_signals.pop(pair, None)
-                    print(f"  ⏸️  {pair}: conf {confidence:.0%} below gate ({period}) | ICT {ict_score}/20 — skip.")
-                    _scan_state[pair] = {"status": "LOW_CONF", "signal": signal, "confidence": round(confidence, 3), "ict_score": ict_score}
+                    print(f"  ⏸️  {pair}: conf {confidence:.0%} below gate ({period}) | 1H Score {ict_score}/20 — skip.")
+                    _scan_state[pair]["status"] = "LOW_CONF"
                     _set_mood("unsure",
                               f"Signal on {_strip_suffix(pair)} but not convinced yet...",
-                              f"{confidence:.0%} conf | ICT {ict_score}/20 | needs {_min_conf:.0%} to fire",
+                              f"{confidence:.0%} conf | 1H Score {ict_score}/20 | needs {_min_conf:.0%} to fire",
                               pair=_strip_suffix(pair), confidence=confidence)
                     continue
 
