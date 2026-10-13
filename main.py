@@ -3577,25 +3577,29 @@ def main():
                 res_runner = None
                 direction  = "BUY" if signal == 1 else "SELL"
 
-                if can_twin and lot_runner > 0:
-                    res_scalp = place_trade(
-                        pair, signal=signal, lot=lot_scalp,
-                        sl=sl_pts, tp=tp_scalp_pts,
-                        comment="AI SCALP", magic=MAGIC_SCALP
-                    )
-                    res_runner = place_trade(
-                        pair, signal=signal, lot=lot_runner,
-                        sl=sl_pts, tp=tp_runner_pts,
-                        comment="AI RUNNER", magic=MAGIC_RUNNER
-                    )
-                    primary_result = res_scalp if (res_scalp and res_scalp.retcode == mt5.TRADE_RETCODE_DONE) else res_runner
-                else:
-                    res_scalp = place_trade(
-                        pair, signal=signal, lot=lot_scalp,
-                        sl=sl_pts, tp=tp_scalp_pts,
-                        comment="AI BOT", magic=MAGIC_SCALP
-                    )
-                    primary_result = res_scalp
+                try:
+                    if can_twin and lot_runner > 0:
+                        res_scalp = place_trade(
+                            pair, signal=signal, lot=lot_scalp,
+                            sl=sl_pts, tp=tp_scalp_pts,
+                            comment="AI SCALP", magic=MAGIC_SCALP
+                        )
+                        res_runner = place_trade(
+                            pair, signal=signal, lot=lot_runner,
+                            sl=sl_pts, tp=tp_runner_pts,
+                            comment="AI RUNNER", magic=MAGIC_RUNNER
+                        )
+                        primary_result = res_scalp if (res_scalp and res_scalp.retcode == mt5.TRADE_RETCODE_DONE) else res_runner
+                    else:
+                        res_scalp = place_trade(
+                            pair, signal=signal, lot=lot_scalp,
+                            sl=sl_pts, tp=tp_scalp_pts,
+                            comment="AI BOT", magic=MAGIC_SCALP
+                        )
+                        primary_result = res_scalp
+                except Exception as _oe:
+                    print(f"❌ Order execution exception for {pair}: {_oe}")
+                    primary_result = None
 
                 trade_success = bool(primary_result and primary_result.retcode == mt5.TRADE_RETCODE_DONE)
 
@@ -3774,7 +3778,7 @@ def main():
 
                 else:
                     _scan_state[pair] = {"status": "FAILED", "signal": signal, "confidence": round(confidence, 3)}
-                    err = result.comment if result else "no response from MT5"
+                    err = primary_result.comment if primary_result else "no response from MT5"
                     print(f"❌ Trade failed for {pair}: {err}")
                     send_telegram_message(f"⚠️ Trade failed for <b>{pair}</b>: {err}")
 

@@ -2,7 +2,7 @@ import MetaTrader5 as mt5
 
 MAGIC = 123456
 
-def place_trade(symbol, signal, lot=0.01, sl=50, tp=100):
+def place_trade(symbol, signal, lot=0.01, sl=50, tp=100, comment="AI BOT", magic=MAGIC, **kwargs):
 
     # 🔥 ENSURE SYMBOL IS AVAILABLE
     symbol_info = mt5.symbol_info(symbol)
@@ -55,8 +55,8 @@ def place_trade(symbol, signal, lot=0.01, sl=50, tp=100):
         "sl": sl_price,
         "tp": tp_price,
         "deviation": 20,
-        "magic": MAGIC,
-        "comment": "AI BOT",
+        "magic": magic,
+        "comment": comment,
         "type_time": mt5.ORDER_TIME_GTC,
         "type_filling": filling_type,
     }
