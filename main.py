@@ -3593,7 +3593,7 @@ def main():
                     else:
                         res_scalp = place_trade(
                             pair, signal=signal, lot=lot_scalp,
-                            sl=sl_pts, tp=tp_scalp_pts,
+                            sl=sl_pts, tp=tp_runner_pts,
                             comment="AI BOT", magic=MAGIC_SCALP
                         )
                         primary_result = res_scalp
@@ -3643,7 +3643,7 @@ def main():
                             "direction":  direction,
                             "entry":      entry_price,
                             "sl":         sl_price,
-                            "tp":         tp_scalp_pr,
+                            "tp":         tp_run_pr if not can_twin else tp_scalp_pr,
                             "lots":       lot_scalp,
                             "ict_score":  ict_score,
                             "confidence": confidence,
@@ -3659,8 +3659,8 @@ def main():
                             "ict_score":     ict_score,
                             "entry":         round(entry_price, 5),
                             "sl":            round(sl_price, 5),
-                            "tp":            round(tp_scalp_pr, 5),
-                            "rrr":           1.5,
+                            "tp":            round(tp_run_pr if not can_twin else tp_scalp_pr, 5),
+                            "rrr":           round(tp_runner_pts / sl_pts, 1) if not can_twin else 1.5,
                             "ticket":        res_scalp.order,
                         })
 
@@ -3747,7 +3747,7 @@ def main():
                             f"Lots:       {lot_scalp}\n"
                             f"Entry:      {entry_price:.5f}\n"
                             f"Stop Loss:  {sl_price:.5f} (−{sl_pts} pts | 1.5× 1H ATR)\n"
-                            f"Take Profit:{tp_scalp_pr:.5f} (1:3.5 RRR)\n"
+                            f"Take Profit:{tp_run_pr:.5f} (1:3.5 RRR)\n"
                             f"Confidence: {conf_bar} {confidence:.0%}\n"
                             f"Session:    {sess_line}\n"
                             f"Ticket:     #{primary_result.order}"
