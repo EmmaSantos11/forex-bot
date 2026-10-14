@@ -1,4 +1,4 @@
-# Mr Bera's Bot — Forex AI Trading System
+# Mr Bera's Bot Forex AI Trading System
 
 A live, 24/5 MetaTrader 5 trading system that combines ICT/SMC price-action concepts with a dual machine-learning ensemble (XGBoost + Random Forest). It reads market structure across three timeframes, scores each setup against 20 confluence factors, and only fires a trade when both models agree above their confidence threshold. Most cycles, it does nothing, that's by design, not a bug.
 
