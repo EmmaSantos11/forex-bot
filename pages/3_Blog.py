@@ -13,6 +13,7 @@ from datetime import datetime, timezone, timedelta
 from dashboard_utils import (
     inject_css, render_sidebar, page_header, section,
     get_deal_history, get_colors, get_model_info, MODEL_DIR,
+    get_trade_log,
 )
 
 st.set_page_config(page_title="Blog · Mr Bera's_Bot", page_icon="📰", layout="wide")
@@ -145,41 +146,43 @@ posts = []
 
 # 1. Trade-based posts ──────────────────────────────────────────────────────────
 df = get_deal_history(days=30)
+tlog = get_trade_log()
+
 if not df.empty:
 
-    # Big wins (≥ $30)
-    big_wins = df[df["profit"] >= 30].sort_values("profit", ascending=False).head(5)
-    for _, row in big_wins.iterrows():
+    # Wins (all profitable closed trades)
+    wins = df[df["profit"] > 0].sort_values("profit", ascending=False).head(10)
+    for _, row in wins.iterrows():
         posts.append({
             "type":  "win",
-            "tag":   "Big Win",
+            "tag":   "Win",
             "time":  row["time"],
-            "title": f"🏆 {row['symbol']} {row['type']} — ${row['profit']:+.2f}",
+            "title": f"🏆 {row['symbol']} {row['type']} — +${row['profit']:.2f}",
             "body":  (
                 f"{_rnd(_WIN_MSGS)}<br><br>"
                 f"The bot landed a strong trade on <b>{row['symbol']}</b> ({row['type']}) "
-                f"closing at <b style='color:{c['success']};'>${row['profit']:+.2f}</b>. "
+                f"closing at <b style='color:{c['success']};'>+${row['profit']:.2f}</b>. "
                 f"ICT structure + SMC confluence + AI agreement — the holy trinity fired perfectly."
             ),
             "meta": f"Lots: {row['volume']} · {row['time'].strftime('%d %b %Y %H:%M')}",
         })
 
-    # Tough losses (≤ -$15)
-    tough_losses = df[df["profit"] <= -15].sort_values("profit").head(3)
-    for _, row in tough_losses.iterrows():
+    # Losses (all closed loss trades)
+    losses = df[df["profit"] < 0].sort_values("profit", ascending=True).head(10)
+    for _, row in losses.iterrows():
         posts.append({
             "type":  "loss",
-            "tag":   "Tough Loss",
+            "tag":   "Loss",
             "time":  row["time"],
             "title": f"📉 {row['symbol']} {row['type']} — ${row['profit']:+.2f}",
             "body":  (
                 f"{_rnd(_LOSS_MSGS)}<br><br>"
-                f"Stop loss triggered on <b>{row['symbol']}</b>. "
+                f"Stop loss triggered on <b>{row['symbol']}</b> ({row['type']}). "
                 f"The bot absorbed <b style='color:{c['danger']};'>${row['profit']:+.2f}</b> "
-                f"and immediately entered its 3-hour cooldown. "
-                f"At 1:5 RRR, one clean win covers five of these — the math still works 🧮"
+                f"and protected capital according to systematic risk management rules. "
+                f"With favorable RRR, consistent wins outpace losses over a high sample size 🧮"
             ),
-            "meta": f"Lots: {row['volume']} · {row['time'].strftime('%d %b %Y %H:%M')} · 3h cooldown activated",
+            "meta": f"Lots: {row['volume']} · {row['time'].strftime('%d %b %Y %H:%M')}",
         })
 
     # Daily summaries
@@ -187,8 +190,8 @@ if not df.empty:
     if not df_7.empty:
         for day, group in df_7.groupby("date"):
             net    = group["profit"].sum()
-            wins   = (group["profit"] > 0).sum()
-            losses = (group["profit"] <= 0).sum()
+            wins_cnt   = (group["profit"] > 0).sum()
+            losses_cnt = (group["profit"] <= 0).sum()
             sign   = "+" if net >= 0 else ""
             color  = c["success"] if net > 0 else (c["text_dim"] if net == 0 else c["danger"])
 
@@ -202,6 +205,11 @@ if not df.empty:
                 mood = _rnd(_DAILY_LOSS_MSGS)
                 verdict = "drawdown"
 
+            best_p = ""
+            if net > 0 and not group.empty:
+                best_row = group.loc[group["profit"].idxmax()]
+                best_p = f" Best pair: <b>{best_row['symbol']}</b> (+${best_row['profit']:.2f})"
+
             posts.append({
                 "type":  "daily",
                 "tag":   "Daily Summary",
@@ -209,59 +217,73 @@ if not df.empty:
                 "title": f"📅 {datetime.strptime(str(day), '%Y-%m-%d').strftime('%A %d %b')} — {sign}${abs(net):.2f}",
                 "body":  (
                     f"{mood}<br><br>"
-                    f"<b>{wins}</b> winning trade{'s' if wins != 1 else ''} and "
-                    f"<b>{losses}</b> losing trade{'s' if losses != 1 else ''} closed. "
-                    f"Net result: <b style='color:{color};'>{sign}${abs(net):.2f}</b> — a {verdict} day."
-                    + (f" Best pair: <b>{group.loc[group['profit'].idxmax(), 'symbol']}</b> "
-                       f"(+${group['profit'].max():.2f})" if net > 0 else "")
+                    f"<b>{wins_cnt}</b> winning trade{'s' if wins_cnt != 1 else ''} and "
+                    f"<b>{losses_cnt}</b> losing trade{'s' if losses_cnt != 1 else ''} closed. "
+                    f"Net result: <b style='color:{color};'>{sign}${abs(net):.2f}</b> — a {verdict} day.{best_p}"
                 ),
                 "meta": f"{len(group)} closed trades · {str(day)}",
             })
 
-# 2. Trade autopsy posts — join MT5 history with trade_history.csv for confidence ──
-TRADE_LOG = os.path.join(os.path.dirname(__file__), "..", "data", "trade_history.csv")
-if not df.empty and os.path.exists(TRADE_LOG):
+# 2. Trade autopsy posts — join MT5 history with trade_log.csv for confidence & confluence ──
+if not df.empty:
     try:
-        tlog = pd.read_csv(TRADE_LOG)
-        tlog["ticket"] = tlog["ticket"].astype(str)
-        # Match closed deals to entry log by ticket / position_id
-        closed = df.copy()
-        closed["ticket_str"] = closed["ticket"].astype(str)
-        merged = closed.merge(
-            tlog[["ticket", "ai_confidence", "lots"]].rename(columns={"lots": "log_lots"}),
-            left_on="ticket_str", right_on="ticket", how="inner"
-        ).drop_duplicates(subset=["ticket_str"])
+        tlog_df = tlog.copy()
+        if not tlog_df.empty:
+            tlog_df["ticket"] = pd.to_numeric(tlog_df["ticket"], errors="coerce").fillna(0).astype(int)
+            closed = df.copy()
+            closed["ticket"] = pd.to_numeric(closed["ticket"], errors="coerce").fillna(0).astype(int)
+            merged = closed.merge(
+                tlog_df[["ticket", "ai_confidence", "ict_score", "rrr", "entry", "sl", "tp", "type"]].rename(
+                    columns={"type": "log_type", "entry": "log_entry", "sl": "log_sl", "tp": "log_tp"}
+                ),
+                on="ticket", how="left"
+            ).drop_duplicates(subset=["ticket", "time"])
+        else:
+            merged = df.copy()
 
-        # Only recent trades (last 14 days) with meaningful P&L
-        merged = merged[merged["time"] >= datetime.now() - timedelta(days=14)]
-        merged = merged[merged["profit"].abs() >= 5].sort_values("profit").head(10)
+        for _, row in merged.sort_values("time", ascending=False).head(15).iterrows():
+            won = row["profit"] > 0
+            conf = row.get("ai_confidence") if "ai_confidence" in row else None
+            conf_val = float(conf) if pd.notna(conf) else None
+            ict = row.get("ict_score") if "ict_score" in row else None
+            ict_val = int(ict) if pd.notna(ict) else None
+            rrr = row.get("rrr") if "rrr" in row else None
+            rrr_val = float(rrr) if pd.notna(rrr) else 3.0
+            trade_dir = row.get("log_type") if ("log_type" in row and pd.notna(row["log_type"])) else row["type"]
 
-        for _, row in merged.iterrows():
-            won      = row["profit"] > 0
-            conf     = row["ai_confidence"]
-            duration = "—"
-            conf_bar = "🟢🟢🟢" if conf >= 0.80 else ("🟡🟡" if conf >= 0.65 else "🟠")
-            verdict  = (
-                f"AI was <b>{conf:.0%} confident</b> — {'and it was right ✅' if won else 'but the market disagreed ❌'}"
+            conf_bar = ("🟢🟢🟢" if conf_val >= 0.80 else ("🟡🟡" if conf_val >= 0.65 else "🟠")) if conf_val is not None else "🛡️ Systematic"
+            conf_str = f"{conf_val:.0%}" if conf_val is not None else "Standard Rules"
+            ict_str = f" · ICT Score: <b>{ict_val}/20</b>" if ict_val is not None else ""
+            rrr_str = f"1:{rrr_val:.1f}" if rrr_val != int(rrr_val) else f"1:{int(rrr_val)}"
+
+            comment = str(row.get("comment", "")).lower()
+            if "tp" in comment:
+                outcome_detail = "Take Profit achieved 🎯"
+            elif "sl" in comment:
+                outcome_detail = "Stop Loss triggered 🛑"
+            else:
+                outcome_detail = "Target reached ✅" if won else "Risk limit reached 🛡️"
+
+            verdict = (
+                f"AI Model Confidence: <b>{conf_str}</b> — {'Signal validated ✅' if won else 'Protected by stop loss ❌'}"
             )
-            rrr_note = "1:10 RRR applied (high confidence)" if conf >= 0.80 else "1:5 RRR applied"
             posts.append({
                 "type":  "autopsy",
                 "tag":   "Trade Autopsy",
                 "time":  row["time"],
-                "title": f"🔬 {'WIN' if won else 'LOSS'} — {row['symbol']} {row['type']} ${row['profit']:+.2f}",
+                "title": f"🔬 {'WIN' if won else 'LOSS'} — {row['symbol']} {trade_dir} ${row['profit']:+.2f}",
                 "body":  (
                     f"{_rnd(_AUTOPSY_WIN_MSGS if won else _AUTOPSY_LOSS_MSGS)}<br><br>"
-                    f"<b>{row['symbol']}</b> {row['type']} — "
-                    f"Closed at <b style='color:{'#3FB950' if won else '#F85149'};'>${row['profit']:+.2f}</b>.<br>"
+                    f"<b>{row['symbol']}</b> {trade_dir} — "
+                    f"Closed at <b style='color:{c['success'] if won else c['danger']};'>${row['profit']:+.2f}</b> ({outcome_detail}).<br>"
                     f"{verdict}<br>"
-                    f"Confidence: {conf_bar} {conf:.0%} · {rrr_note}<br><br>"
-                    f"The bot followed every rule. "
+                    f"Confidence: {conf_bar} {conf_str}{ict_str} · Target RRR: <b>{rrr_str}</b><br><br>"
+                    f"The bot followed all institutional rule parameters. "
                     + ("Structure held, liquidity was swept, and the AI called it correctly. " if won
-                       else "Sometimes even valid setups get invalidated. The stop loss protected the account. ")
-                    + "That's systematic trading. 🤖"
+                       else "Market invalidated the setup before target was reached. Stop loss prevented deeper drawdown. ")
+                    + "Systematic execution 🤖"
                 ),
-                "meta": f"{row['time'].strftime('%d %b %Y %H:%M')} · Lots: {row['volume']}",
+                "meta": f"{row['time'].strftime('%d %b %Y %H:%M')} · Lots: {row['volume']} · Ticket: #{row['ticket']}",
             })
     except Exception:
         pass
@@ -330,20 +352,24 @@ for event in news_events:
     })
 
 # ── Filter + sort ──────────────────────────────────────────────────────────────
-col_f1, col_f2, col_f3, col_f4, col_f5, col_f6, _ = st.columns([1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1])
-with col_f1: show_all     = st.button("All")
-with col_f2: show_wins    = st.button("🏆 Wins")
-with col_f3: show_losses  = st.button("📉 Losses")
-with col_f4: show_news    = st.button("⚠️ News")
-with col_f5: show_retrain = st.button("🧠 AI")
-with col_f6: show_autopsy = st.button("🔬 Autopsy")
+filter_opt = st.radio(
+    "Filter Blog Posts",
+    ["All", "🏆 Wins", "📉 Losses", "🔬 Autopsies", "🧠 AI", "⚠️ News", "📅 Daily"],
+    horizontal=True,
+    label_visibility="collapsed",
+    key="blog_filter_radio",
+)
 
-filter_type = None
-if show_wins:    filter_type = "win"
-if show_losses:  filter_type = "loss"
-if show_news:    filter_type = "news"
-if show_retrain: filter_type = "retrain"
-if show_autopsy: filter_type = "autopsy"
+filter_map = {
+    "All": None,
+    "🏆 Wins": "win",
+    "📉 Losses": "loss",
+    "🔬 Autopsies": "autopsy",
+    "🧠 AI": "retrain",
+    "⚠️ News": "news",
+    "📅 Daily": "daily",
+}
+filter_type = filter_map.get(filter_opt)
 
 filtered = [p for p in posts if filter_type is None or p["type"] == filter_type]
 filtered.sort(key=lambda p: p["time"], reverse=True)
@@ -359,13 +385,13 @@ if not filtered:
     st.markdown(f"""
     <div class="bot-card" style="text-align:center; padding:60px; color:{c['text_dim']};">
         <div style="font-size:48px; margin-bottom:16px;">📭</div>
-        No posts yet — the blog fills up as the bot trades and retrains.
+        No posts yet matching the selected filter.
     </div>
     """, unsafe_allow_html=True)
 else:
     TAG_CLASSES = {
-        "win":     ("tag-win",     "BIG WIN"),
-        "loss":    ("tag-loss",    "TOUGH LOSS"),
+        "win":     ("tag-win",     "WIN"),
+        "loss":    ("tag-loss",    "LOSS"),
         "news":    ("tag-news",    "MARKET ALERT"),
         "retrain": ("tag-retrain", "AI RETRAIN"),
         "daily":   ("tag-daily",   "DAILY SUMMARY"),

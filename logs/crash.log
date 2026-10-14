@@ -584,3 +584,138 @@ UnboundLocalError: cannot access local variable '_market_bias_posted' where it i
 [2026-08-05 22:29:45] 💥 Bot crashed (exit code 1, attempt #12). Restarting in 30s...
 
 [2026-08-05 22:30:17] 💥 Bot crashed (exit code 1, attempt #13). Restarting in 30s...
+
+============================================================
+CRASH AT 2026-10-13 11:19:36
+============================================================
+Traceback (most recent call last):
+  File "C:\forex_ai_bot\main.py", line 3650, in main
+    res_scalp = place_trade(
+        pair, signal=signal, lot=lot_scalp,
+        sl=sl_pts, tp=tp_scalp_pts,
+        comment="AI BOT", magic=MAGIC_SCALP
+    )
+TypeError: place_trade() got an unexpected keyword argument 'comment'
+
+
+[2026-10-13 11:19:41] 💥 Bot crashed (exit code 1, attempt #1). Restarting in 30s...
+
+============================================================
+CRASH AT 2026-10-13 16:24:15
+============================================================
+Traceback (most recent call last):
+  File "C:\forex_ai_bot\main.py", line 3593, in main
+    res_scalp = place_trade(
+        pair, signal=signal, lot=lot_scalp,
+        sl=sl_pts, tp=tp_scalp_pts,
+        comment="AI BOT", magic=MAGIC_SCALP
+    )
+TypeError: place_trade() got an unexpected keyword argument 'comment'
+
+
+[2026-10-13 16:24:22] 💥 Bot crashed (exit code 1, attempt #1). Restarting in 30s...
+
+============================================================
+CRASH AT 2026-10-13 16:27:46
+============================================================
+Traceback (most recent call last):
+  File "C:\forex_ai_bot\main.py", line 3593, in main
+    res_scalp = place_trade(
+        pair, signal=signal, lot=lot_scalp,
+        sl=sl_pts, tp=tp_scalp_pts,
+        comment="AI BOT", magic=MAGIC_SCALP
+    )
+TypeError: place_trade() got an unexpected keyword argument 'comment'
+
+
+[2026-10-13 16:27:55] 💥 Bot crashed (exit code 1, attempt #2). Restarting in 30s...
+
+============================================================
+CRASH AT 2026-10-13 16:30:56
+============================================================
+Traceback (most recent call last):
+  File "C:\forex_ai_bot\main.py", line 3593, in main
+    res_scalp = place_trade(
+        pair, signal=signal, lot=lot_scalp,
+        sl=sl_pts, tp=tp_scalp_pts,
+        comment="AI BOT", magic=MAGIC_SCALP
+    )
+TypeError: place_trade() got an unexpected keyword argument 'comment'
+
+
+[2026-10-13 16:31:02] 💥 Bot crashed (exit code 1, attempt #3). Restarting in 30s...
+
+============================================================
+CRASH AT 2026-10-13 16:36:12
+============================================================
+Traceback (most recent call last):
+  File "C:\forex_ai_bot\main.py", line 3593, in main
+    res_scalp = place_trade(
+        pair, signal=signal, lot=lot_scalp,
+        sl=sl_pts, tp=tp_scalp_pts,
+        comment="AI BOT", magic=MAGIC_SCALP
+    )
+TypeError: place_trade() got an unexpected keyword argument 'comment'
+
+
+[2026-10-13 16:36:16] 💥 Bot crashed (exit code 1, attempt #4). Restarting in 30s...
+
+============================================================
+CRASH AT 2026-10-13 16:51:35
+============================================================
+Traceback (most recent call last):
+  File "C:\forex_ai_bot\main.py", line 3593, in main
+    res_scalp = place_trade(
+        pair, signal=signal, lot=lot_scalp,
+        sl=sl_pts, tp=tp_scalp_pts,
+        comment="AI BOT", magic=MAGIC_SCALP
+    )
+TypeError: place_trade() got an unexpected keyword argument 'comment'
+
+
+[2026-10-13 16:51:40] 💥 Bot crashed (exit code 1, attempt #5). Restarting in 30s...
+
+============================================================
+CRASH AT 2026-10-13 16:54:43
+============================================================
+Traceback (most recent call last):
+  File "C:\forex_ai_bot\main.py", line 3593, in main
+    res_scalp = place_trade(
+        pair, signal=signal, lot=lot_scalp,
+        sl=sl_pts, tp=tp_scalp_pts,
+        comment="AI BOT", magic=MAGIC_SCALP
+    )
+TypeError: place_trade() got an unexpected keyword argument 'comment'
+
+
+[2026-10-13 16:54:48] 💥 Bot crashed (exit code 1, attempt #6). Restarting in 30s...
+
+============================================================
+CRASH AT 2026-10-13 16:58:15
+============================================================
+Traceback (most recent call last):
+  File "C:\forex_ai_bot\main.py", line 3593, in main
+    res_scalp = place_trade(
+        pair, signal=signal, lot=lot_scalp,
+        sl=sl_pts, tp=tp_scalp_pts,
+        comment="AI BOT", magic=MAGIC_SCALP
+    )
+TypeError: place_trade() got an unexpected keyword argument 'comment'
+
+
+[2026-10-13 16:58:23] 💥 Bot crashed (exit code 1, attempt #7). Restarting in 30s...
+
+============================================================
+CRASH AT 2026-10-13 17:02:05
+============================================================
+Traceback (most recent call last):
+  File "C:\forex_ai_bot\main.py", line 3593, in main
+    res_scalp = place_trade(
+        pair, signal=signal, lot=lot_scalp,
+        sl=sl_pts, tp=tp_scalp_pts,
+        comment="AI BOT", magic=MAGIC_SCALP
+    )
+TypeError: place_trade() got an unexpected keyword argument 'comment'
+
+
+[2026-10-13 17:02:12] 💥 Bot crashed (exit code 1, attempt #8). Restarting in 30s...

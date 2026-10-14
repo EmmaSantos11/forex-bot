@@ -611,14 +611,17 @@ def get_deal_history(days: int = 30) -> pd.DataFrame:
     rows  = []
     for d in deals:
         if d.entry == mt5.DEAL_ENTRY_OUT and d.symbol:
+            # On DEAL_ENTRY_OUT: closing a SELL deal has d.type==DEAL_TYPE_BUY, closing a BUY has d.type==DEAL_TYPE_SELL
+            orig_type = "SELL" if d.type == mt5.DEAL_TYPE_BUY else "BUY"
             rows.append({
                 "time":    datetime.fromtimestamp(d.time),
                 "symbol":  d.symbol,
-                "type":    "BUY" if d.type == mt5.DEAL_TYPE_BUY else "SELL",
+                "type":    orig_type,
                 "profit":  round(d.profit, 2),
                 "volume":  d.volume,
                 "price":   d.price,
                 "ticket":  d.position_id,
+                "comment": d.comment or "",
             })
     if not rows:
         return pd.DataFrame()
@@ -628,6 +631,34 @@ def get_deal_history(days: int = 30) -> pd.DataFrame:
     df["weekday"] = df["time"].dt.strftime("%a")
     df["win"]     = df["profit"] > 0
     return df
+
+
+_TL_COLS = [
+    "timestamp", "symbol", "type", "lots", "ai_confidence",
+    "ict_score", "entry", "sl", "tp", "rrr", "ticket"
+]
+
+
+@st.cache_data(ttl=30)
+def get_trade_log() -> pd.DataFrame:
+    """Reads logs/trade_log.csv written by main.py."""
+    log_path = os.path.join(os.path.dirname(__file__), "logs", "trade_log.csv")
+    if not os.path.exists(log_path):
+        return pd.DataFrame(columns=_TL_COLS)
+    try:
+        df = pd.read_csv(log_path, header=None, names=_TL_COLS)
+        if str(df.iloc[0]["timestamp"]).lower() in ("timestamp", "time"):
+            df = df.iloc[1:].reset_index(drop=True)
+        df["timestamp"]     = pd.to_datetime(df["timestamp"], errors="coerce")
+        df["ai_confidence"] = pd.to_numeric(df["ai_confidence"], errors="coerce")
+        df["ict_score"]     = pd.to_numeric(df["ict_score"],     errors="coerce").fillna(0).astype(int)
+        df["rrr"]           = pd.to_numeric(df["rrr"],           errors="coerce").fillna(3.0)
+        df["ticket"]        = pd.to_numeric(df["ticket"],        errors="coerce").fillna(0).astype(int)
+        return df.dropna(subset=["timestamp"])
+    except Exception:
+        return pd.DataFrame(columns=_TL_COLS)
+
+
 
 
 # ── Model metadata ────────────────────────────────────────────────────────────

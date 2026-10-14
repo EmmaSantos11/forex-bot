@@ -12,6 +12,7 @@ from streamlit_autorefresh import st_autorefresh
 from dashboard_utils import (
     inject_css, render_sidebar, page_header, metric_card, section,
     get_account_data, get_deal_history, get_colors, pnl_color, hex_to_rgba,
+    get_trade_log,
 )
 
 st.set_page_config(page_title="Performance · Mr Bera's Bot", page_icon="📊", layout="wide")
@@ -25,24 +26,8 @@ page_header("📊 PERFORMANCE", "Strategy analytics · win rate · drawdown · p
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-_TL_COLS = ["timestamp", "symbol", "type", "lots", "ai_confidence",
-            "ict_score", "entry", "sl", "tp", "rrr", "ticket"]
-
-
-@st.cache_data(ttl=60)
 def _load_trade_log() -> pd.DataFrame:
-    try:
-        df = pd.read_csv("logs/trade_log.csv", header=None, names=_TL_COLS)
-        if str(df.iloc[0]["timestamp"]).lower() in ("timestamp", "time"):
-            df = df.iloc[1:].reset_index(drop=True)
-        df["timestamp"]     = pd.to_datetime(df["timestamp"], errors="coerce")
-        df["ai_confidence"] = pd.to_numeric(df["ai_confidence"], errors="coerce")
-        df["ict_score"]     = pd.to_numeric(df["ict_score"],     errors="coerce").fillna(0).astype(int)
-        df["rrr"]           = pd.to_numeric(df["rrr"],           errors="coerce").fillna(3)
-        df["ticket"]        = pd.to_numeric(df["ticket"],        errors="coerce").fillna(0).astype(int)
-        return df.dropna(subset=["timestamp"])
-    except Exception:
-        return pd.DataFrame(columns=_TL_COLS)
+    return get_trade_log()
 
 
 def _enrich(df: pd.DataFrame, tl: pd.DataFrame) -> pd.DataFrame:
@@ -506,6 +491,6 @@ if "ICT" in df_disp.columns:
         lambda v: f"{int(v)}/20" if pd.notna(v) else "—")
 if "RR" in df_disp.columns:
     df_disp["RR"] = df_disp["RR"].map(
-        lambda v: f"1:{int(v)}" if pd.notna(v) else "—")
+        lambda v: (f"1:{int(v)}" if v == int(v) else f"1:{v:.1f}") if pd.notna(v) else "—")
 
 st.dataframe(df_disp, use_container_width=True, hide_index=True)
